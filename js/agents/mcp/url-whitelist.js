@@ -98,9 +98,16 @@ export function isAllowedParam(key, whitelist = null) {
  * @param {object} [options]
  * @param {string[]} [options.additionalParams] - 额外允许的参数
  * @param {boolean} [options.logStripped=false] - 是否记录被剥离的参数
+ * @param {boolean} [options.preserveHash=false] - 是否保留 hash
+ * @param {boolean} [options.preserveCredentials=false] - 是否保留 credentials
+ * @param {(string[]|Set<string>)} [options.preserveParams] - 额外保留（即使不在白名单）的参数名
+ * @param {boolean} [options.preserveNonWhitelisted=false] - 是否保留所有非白名单参数（用于签名 URL）
  * @returns {{ url: string, strippedParams: string[] }}
  */
-export function filterUrlParams(url, { additionalParams, logStripped = false } = {}) {
+export function filterUrlParams(
+  url,
+  { additionalParams, logStripped = false, preserveHash = false, preserveCredentials = false, preserveParams, preserveNonWhitelisted = false } = {}
+) {
   const strippedParams = [];
 
   if (!url || typeof url !== "string") {
@@ -116,10 +123,18 @@ export function filterUrlParams(url, { additionalParams, logStripped = false } =
   }
 
   const whitelist = createWhitelist(additionalParams);
+  const preserved = preserveParams instanceof Set
+    ? new Set(Array.from(preserveParams).map((v) => String(v || "").toLowerCase().trim()).filter(Boolean))
+    : Array.isArray(preserveParams)
+      ? new Set(preserveParams.map((v) => String(v || "").toLowerCase().trim()).filter(Boolean))
+      : new Set();
   const keysToRemove = [];
 
   for (const key of parsed.searchParams.keys()) {
-    if (!isAllowedParam(key, whitelist)) {
+    const normalizedKey = String(key || "").toLowerCase().trim();
+    const allowByWhitelist = isAllowedParam(key, whitelist);
+    const allowByPreserve = preserved.has(normalizedKey);
+    if (!preserveNonWhitelisted && !allowByWhitelist && !allowByPreserve) {
       keysToRemove.push(key);
       strippedParams.push(key);
     }
@@ -130,13 +145,13 @@ export function filterUrlParams(url, { additionalParams, logStripped = false } =
   }
 
   // 同时清除 hash（可能包含敏感信息，如 OAuth implicit flow）
-  if (parsed.hash) {
+  if (!preserveHash && parsed.hash) {
     strippedParams.push("#hash");
     parsed.hash = "";
   }
 
   // 清除 credentials
-  if (parsed.username || parsed.password) {
+  if (!preserveCredentials && (parsed.username || parsed.password)) {
     strippedParams.push("@credentials");
     parsed.username = "";
     parsed.password = "";
@@ -232,13 +247,26 @@ export function auditUrl(url) {
  * @param {object} [options]
  * @param {boolean} [options.strict=true] - 严格模式（剥离所有非白名单参数）
  * @param {string[]} [options.additionalParams] - 额外允许的参数
+ * @param {boolean} [options.preserveHash=false] - 是否保留 hash（用于 OAuth）
+ * @param {boolean} [options.preserveCredentials=false] - 是否保留 credentials
+ * @param {(string[]|Set<string>)} [options.preserveParams] - 额外保留参数
+ * @param {boolean} [options.preserveNonWhitelisted=false] - 保留所有非白名单参数（用于签名 URL）
  * @returns {{ url: string, audit: { safe: boolean, issues: string[] } }}
  */
-export function prepareUrlForProxy(url, { strict = true, additionalParams } = {}) {
+export function prepareUrlForProxy(
+  url,
+  { strict = true, additionalParams, preserveHash = false, preserveCredentials = false, preserveParams, preserveNonWhitelisted = false } = {}
+) {
   const audit = auditUrl(url);
 
   if (strict) {
-    const { url: filteredUrl } = filterUrlParams(url, { additionalParams });
+    const { url: filteredUrl } = filterUrlParams(url, {
+      additionalParams,
+      preserveHash,
+      preserveCredentials,
+      preserveParams,
+      preserveNonWhitelisted,
+    });
     return { url: filteredUrl, audit };
   }
 

@@ -63,6 +63,7 @@ const logger = createLogger("mcp/resource-manager");
  * @property {number=} maxPersistBytes
  * @property {number=} maxContentCacheEntries
  * @property {number=} maxContentCacheBytes
+ * @property {boolean=} persistStrict
  * @property {{ enabled?: boolean, required?: boolean, passphrase?: string, aad?: string, iterations?: number }=} encryption
  */
 
@@ -157,7 +158,7 @@ async function storeGet(store, key) {
   return null;
 }
 
-function storeSetFireAndForget(store, key, value) {
+async function storeSetAsync(store, key, value) {
   if (!store) return false;
   if (isStorageLike(store)) {
     try {
@@ -169,7 +170,7 @@ function storeSetFireAndForget(store, key, value) {
   }
   if (isAsyncStore(store)) {
     try {
-      void store.set(String(key), value);
+      await store.set(String(key), value);
       return true;
     } catch {
       return false;
@@ -260,6 +261,7 @@ export class McpResourceManager {
     maxPersistBytes = 50_000,
     maxContentCacheEntries = 500,
     maxContentCacheBytes = 10_000_000, // 10MB 内存缓存上限
+    persistStrict = false,
     encryption,
   } = {}) {
     this.client = client instanceof McpClient ? client : null;
@@ -273,6 +275,7 @@ export class McpResourceManager {
     this.maxPersistBytes = normalizeTtlMs(maxPersistBytes, 50_000);
     this.maxContentCacheEntries = normalizeCacheLimit(maxContentCacheEntries, 500);
     this.maxContentCacheBytes = normalizeCacheLimit(maxContentCacheBytes, 10_000_000);
+    this.persistStrict = persistStrict === true;
 
     const enc = normalizeEncryptionConfig(encryption);
     if (enc.enabled && (!enc.passphrase || !canUseStorageEncryption())) {
@@ -295,6 +298,14 @@ export class McpResourceManager {
 
     this._initPromise = null;
     this._ttlCleanupInterval = null;
+    this._persistQueue = Promise.resolve();
+    this._persistQueueDepth = 0;
+    this._stats = {
+      evictions: { expired: 0, byteBudget: 0, entryBudget: 0, explicit: 0 },
+      hydrate: { loaded: 0, droppedExpired: 0, droppedInvalid: 0, droppedVersionMismatch: 0 },
+      persist: { attempted: 0, succeeded: 0, failed: 0, pending: 0, lastError: null },
+      subscriptions: { providerReplacements: 0, resubscribeAttempts: 0, resubscribeFailures: 0 },
+    };
   }
 
   /**
@@ -313,6 +324,30 @@ export class McpResourceManager {
     return this._initPromise;
   }
 
+  getStats() {
+    return {
+      evictions: { ...this._stats.evictions },
+      hydrate: { ...this._stats.hydrate },
+      persist: { ...this._stats.persist },
+      subscriptions: { ...this._stats.subscriptions },
+      cache: {
+        listProviders: this._listCache.size,
+        templateProviders: this._templatesCache.size,
+        contentEntries: this._contentCache.size,
+        contentBytes: this._contentCacheTotalBytes,
+      },
+    };
+  }
+
+  async flushPersist() {
+    try {
+      await this._persistQueue;
+      return { ok: true, pending: this._persistQueueDepth };
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err), pending: this._persistQueueDepth };
+    }
+  }
+
   _startTtlCleanup() {
     if (this._ttlCleanupInterval) return;
     const intervalMs = Math.max(30_000, this.defaultTtlMs);
@@ -324,12 +359,16 @@ export class McpResourceManager {
     }
   }
 
-  _deleteContentCacheEntry(cacheKey) {
+  _deleteContentCacheEntry(cacheKey, reason = null) {
     const entry = this._contentCache.get(cacheKey);
     if (!entry) return false;
     this._contentCacheTotalBytes -= entry.byteSize || 0;
     if (this._contentCacheTotalBytes < 0) this._contentCacheTotalBytes = 0;
     this._contentCache.delete(cacheKey);
+    if (reason === "explicit") this._stats.evictions.explicit += 1;
+    if (reason === "expired") this._stats.evictions.expired += 1;
+    if (reason === "byte") this._stats.evictions.byteBudget += 1;
+    if (reason === "entry") this._stats.evictions.entryBudget += 1;
     return true;
   }
 
@@ -421,7 +460,7 @@ export class McpResourceManager {
       const ts = typeof v?.ts === "number" && Number.isFinite(v.ts) ? v.ts : 0;
       const ttlMs = typeof v?.ttlMs === "number" && Number.isFinite(v.ttlMs) ? v.ttlMs : 0;
       if (ttlMs > 0 && nowMs - ts > ttlMs) {
-        this._deleteContentCacheEntry(k);
+        this._deleteContentCacheEntry(k, "expired");
       }
     }
 
@@ -429,7 +468,7 @@ export class McpResourceManager {
     while (this._contentCacheTotalBytes > limitBytes && this._contentCache.size > 0) {
       const oldest = this._contentCache.keys().next().value;
       if (!oldest) break;
-      this._deleteContentCacheEntry(oldest);
+      this._deleteContentCacheEntry(oldest, "byte");
     }
 
     // 3. 条目数限制
@@ -437,7 +476,7 @@ export class McpResourceManager {
       while (this._contentCache.size > limitEntries) {
         const oldest = this._contentCache.keys().next().value;
         if (!oldest) break;
-        this._deleteContentCacheEntry(oldest);
+        this._deleteContentCacheEntry(oldest, "entry");
       }
     }
   }
@@ -461,13 +500,19 @@ export class McpResourceManager {
     const now = Date.now();
     this._contentCacheTotalBytes = 0;
     for (const [providerId, entry] of Object.entries(parsed.providers)) {
-      if (!isPlainObject(entry)) continue;
+      if (!isPlainObject(entry)) {
+        this._stats.hydrate.droppedInvalid += 1;
+        continue;
+      }
       const list = Array.isArray(entry.resources) ? entry.resources : null;
       const templates = Array.isArray(entry.templates) ? entry.templates : null;
       const contents = isPlainObject(entry.contents) ? entry.contents : null;
       const ts = Number.isFinite(Number(entry.ts)) ? Math.floor(Number(entry.ts)) : now;
       const ttlMs = normalizeTtlMs(entry.ttlMs, this.defaultTtlMs);
-      if (ttlMs > 0 && now - ts > ttlMs) continue;
+      if (ttlMs > 0 && now - ts > ttlMs) {
+        this._stats.hydrate.droppedExpired += 1;
+        continue;
+      }
 
       if (list) this._listCache.set(providerId, { ts, ttlMs, resources: list });
       if (templates) this._templatesCache.set(providerId, { ts, ttlMs, templates });
@@ -484,17 +529,29 @@ export class McpResourceManager {
         }
 
         for (const [uri, c] of Object.entries(contents)) {
-          if (!isPlainObject(c)) continue;
+          if (!isPlainObject(c)) {
+            this._stats.hydrate.droppedInvalid += 1;
+            continue;
+          }
           const cts = Number.isFinite(Number(c.ts)) ? Math.floor(Number(c.ts)) : ts;
           const cttl = normalizeTtlMs(c.ttlMs, ttlMs);
-          if (cttl > 0 && now - cts > cttl) continue;
-          if (!isPlainObject(c.content)) continue;
+          if (cttl > 0 && now - cts > cttl) {
+            this._stats.hydrate.droppedExpired += 1;
+            continue;
+          }
+          if (!isPlainObject(c.content)) {
+            this._stats.hydrate.droppedInvalid += 1;
+            continue;
+          }
           const persistedVersion = {
             etag: normalizeVersionFieldValue(c.etag) || extractVersionInfo(c.content).etag,
             lastModified: normalizeVersionFieldValue(c.lastModified) || extractVersionInfo(c.content).lastModified,
           };
           const listVersion = versionByUri.get(uri) || null;
-          if (!isVersionConsistent(persistedVersion, listVersion)) continue;
+          if (!isVersionConsistent(persistedVersion, listVersion)) {
+            this._stats.hydrate.droppedVersionMismatch += 1;
+            continue;
+          }
 
           const byteSize = this._estimateContentByteSize(c.content);
           this._contentCache.set(keyOf(providerId, uri), {
@@ -506,11 +563,44 @@ export class McpResourceManager {
             lastModified: persistedVersion.lastModified || null,
           });
           this._contentCacheTotalBytes += byteSize;
+          this._stats.hydrate.loaded += 1;
         }
       }
     }
 
     this._pruneContentCache(now);
+  }
+
+  _enqueuePersistTask(task) {
+    if (typeof task !== "function") return false;
+    this._stats.persist.attempted += 1;
+    this._persistQueueDepth += 1;
+    this._stats.persist.pending = this._persistQueueDepth;
+
+    const runTask = async () => {
+      try {
+        await task();
+        this._stats.persist.succeeded += 1;
+        this._stats.persist.lastError = null;
+        return true;
+      } catch (err) {
+        this._stats.persist.failed += 1;
+        this._stats.persist.lastError = err?.message || String(err);
+        logger.warn("Resource cache persist error", { error: this._stats.persist.lastError });
+        if (this.persistStrict) throw err;
+        return false;
+      } finally {
+        this._persistQueueDepth = Math.max(0, this._persistQueueDepth - 1);
+        this._stats.persist.pending = this._persistQueueDepth;
+      }
+    };
+
+    const next = this._persistQueue.catch(() => undefined).then(runTask);
+    this._persistQueue = next.then(
+      () => undefined,
+      () => undefined
+    );
+    return true;
   }
 
   _persistCache() {
@@ -575,25 +665,33 @@ export class McpResourceManager {
     try {
       json = JSON.stringify(payload);
     } catch {
+      this._stats.persist.failed += 1;
+      this._stats.persist.lastError = "serialize_failed";
       return false;
     }
     if (typeof this.maxPersistBytes === "number" && Number.isFinite(this.maxPersistBytes) && this.maxPersistBytes >= 0) {
-      if (json.length > this.maxPersistBytes) return false;
+      if (json.length > this.maxPersistBytes) {
+        this._stats.persist.failed += 1;
+        this._stats.persist.lastError = "payload_too_large";
+        return false;
+      }
     }
 
-    if (this.encryption?.enabled) {
-      void encryptString(json, {
-        passphrase: this.encryption.passphrase,
-        aad: this.encryption.aad,
-        iterations: this.encryption.iterations,
-      })
-        .then((enc) => storeSetFireAndForget(store, RESOURCES_CACHE_KEY, enc))
-        .catch((err) => logger.warn("Resource cache persist error", { error: err.message }));
-      return true;
-    }
-
-    const value = isStorageLike(store) ? json : payload;
-    return storeSetFireAndForget(store, RESOURCES_CACHE_KEY, value);
+    return this._enqueuePersistTask(async () => {
+      if (this.encryption?.enabled) {
+        const encrypted = await encryptString(json, {
+          passphrase: this.encryption.passphrase,
+          aad: this.encryption.aad,
+          iterations: this.encryption.iterations,
+        });
+        const ok = await storeSetAsync(store, RESOURCES_CACHE_KEY, encrypted);
+        if (!ok) throw new Error("persist_write_failed");
+        return;
+      }
+      const value = isStorageLike(store) ? json : payload;
+      const ok = await storeSetAsync(store, RESOURCES_CACHE_KEY, value);
+      if (!ok) throw new Error("persist_write_failed");
+    });
   }
 
   _getProvider(providerId) {
@@ -631,7 +729,7 @@ export class McpResourceManager {
     const { providerId: id } = this._getProvider(providerId);
     const u = toNonEmptyString(uri);
     if (!u) return;
-    this._deleteContentCacheEntry(keyOf(id, u));
+    this._deleteContentCacheEntry(keyOf(id, u), "explicit");
     this._persistCache();
   }
 
@@ -694,7 +792,7 @@ export class McpResourceManager {
         this._touchContentCache(cacheKey);
         return cached.content;
       }
-      this._deleteContentCacheEntry(cacheKey);
+      this._deleteContentCacheEntry(cacheKey, "explicit");
     }
 
     if (typeof provider.readResource !== "function") {
@@ -711,7 +809,7 @@ export class McpResourceManager {
     // 如果已有旧缓存，先减去旧大小
     const oldCached = this._contentCache.get(cacheKey);
     if (oldCached) {
-      this._deleteContentCacheEntry(cacheKey);
+      this._deleteContentCacheEntry(cacheKey, "explicit");
     }
 
     this._contentCache.set(cacheKey, {
@@ -852,9 +950,18 @@ export class McpResourceManager {
   _ensureProviderNotifications(providerId, provider) {
     const currentProvider = this._providerNotifyProvider.get(providerId);
     if (currentProvider && currentProvider !== provider) {
+      this._stats.subscriptions.providerReplacements += 1;
       this._stopProviderNotifications(providerId);
-      // Re-subscribe server-side resources for the replacement provider (best-effort).
-      void this._resubscribeProviderResources(providerId, provider);
+      // Re-subscribe server-side resources for the replacement provider.
+      void this._resubscribeProviderResources(providerId, provider).then((result) => {
+        if (!result?.ok) {
+          logger.warn("Resource re-subscribe failed after provider replacement", {
+            providerId,
+            attempted: result?.attempted || 0,
+            failed: Array.isArray(result?.failedUris) ? result.failedUris.length : 0,
+          });
+        }
+      });
     }
 
     if (this._providerNotifyUnsub.has(providerId)) return;
@@ -888,8 +995,10 @@ export class McpResourceManager {
 
   async _resubscribeProviderResources(providerId, provider) {
     const pid = toNonEmptyString(providerId);
-    if (!pid) return false;
-    if (!provider || typeof provider.subscribeResource !== "function") return false;
+    if (!pid) return { ok: false, attempted: 0, failedUris: [], reason: "missing_provider_id" };
+    if (!provider || typeof provider.subscribeResource !== "function") {
+      return { ok: false, attempted: 0, failedUris: [], reason: "provider_not_subscribable" };
+    }
 
     const uris = [];
     const prefix = `${pid}:`;
@@ -899,18 +1008,22 @@ export class McpResourceManager {
       const uri = String(k).slice(prefix.length);
       if (uri) uris.push(uri);
     }
-    if (!uris.length) return true;
+    if (!uris.length) return { ok: true, attempted: 0, failedUris: [] };
 
-    await Promise.all(
-      uris.map(async (uri) => {
-        try {
-          await provider.subscribeResource(uri);
-        } catch {
-          // ignore
-        }
-      })
-    );
-    return true;
+    this._stats.subscriptions.resubscribeAttempts += uris.length;
+    const failedUris = [];
+
+    await Promise.all(uris.map(async (uri) => {
+      try {
+        await provider.subscribeResource(uri);
+      } catch {
+        failedUris.push(uri);
+      }
+    }));
+    if (failedUris.length > 0) {
+      this._stats.subscriptions.resubscribeFailures += failedUris.length;
+    }
+    return { ok: failedUris.length === 0, attempted: uris.length, failedUris };
   }
 
   /**
@@ -936,7 +1049,7 @@ export class McpResourceManager {
     if (method === "notifications/resources/updated") {
       const uri = toNonEmptyString(params.uri);
       if (!uri) return;
-      this._deleteContentCacheEntry(keyOf(pid, uri));
+      this._deleteContentCacheEntry(keyOf(pid, uri), "explicit");
       this._persistCache();
 
       const subs = Array.from(this._subs.values()).filter((s) => s.providerId === pid && s.uri === uri);

@@ -151,13 +151,17 @@ function makeTimeoutError(timeoutMs) {
 }
 
 // Hard timeout: aborts via AbortController and rejects with exit-code-like 124 on timeout.
-function withHardTimeout(promiseFactory, timeoutMs, signal) {
+function withHardTimeout(promiseFactory, timeoutMs, signal, { onTimeout, onAbort, onLateSettle } = {}) {
   const ms = Number.isFinite(timeoutMs) ? Math.max(0, Math.floor(timeoutMs)) : 0;
   const controller = new AbortController();
 
   let didTimeout = false;
   let timeoutId = null;
   let removeOuterAbortListener = null;
+  const notifyTimeout = typeof onTimeout === "function" ? onTimeout : null;
+  const notifyAbort = typeof onAbort === "function" ? onAbort : null;
+  const notifyLateSettle = typeof onLateSettle === "function" ? onLateSettle : null;
+  let lateSettledNotified = false;
 
   const outerSignal = signal;
   const onOuterAbort =
@@ -183,6 +187,11 @@ function withHardTimeout(promiseFactory, timeoutMs, signal) {
     timeoutId = setTimeout(() => {
       didTimeout = true;
       try {
+        notifyTimeout?.({ timeoutMs: ms, abortRequested: true });
+      } catch {
+        // ignore callback errors
+      }
+      try {
         controller.abort("TIMEOUT");
       } catch {
         controller.abort();
@@ -193,7 +202,23 @@ function withHardTimeout(promiseFactory, timeoutMs, signal) {
   let removeControllerAbortListener = null;
   const abortPromise = new Promise((_, reject) => {
     const onAbort = () => {
-      reject(didTimeout ? makeTimeoutError(ms) : abortErrorFromSignal(controller.signal));
+      const err = didTimeout ? makeTimeoutError(ms) : abortErrorFromSignal(controller.signal);
+      if (didTimeout) {
+        const timeoutErr = /** @type {Error & { timedOut?: boolean, abortRequested?: boolean, mayContinueInBackground?: boolean }} */ (err);
+        timeoutErr.timedOut = true;
+        timeoutErr.abortRequested = true;
+        timeoutErr.mayContinueInBackground = true;
+      }
+      try {
+        notifyAbort?.({
+          reason: controller.signal?.reason,
+          timeout: didTimeout,
+          timeoutMs: ms,
+        });
+      } catch {
+        // ignore callback errors
+      }
+      reject(err);
     };
     if (controller.signal.aborted) {
       onAbort();
@@ -207,6 +232,16 @@ function withHardTimeout(promiseFactory, timeoutMs, signal) {
     typeof promiseFactory === "function"
       ? Promise.resolve().then(() => promiseFactory(controller.signal))
       : Promise.resolve(promiseFactory);
+
+  callPromise.finally(() => {
+    if (!didTimeout || lateSettledNotified) return;
+    lateSettledNotified = true;
+    try {
+      notifyLateSettle?.({ timeoutMs: ms });
+    } catch {
+      // ignore callback errors
+    }
+  });
 
   return Promise.race([callPromise, abortPromise]).finally(() => {
     if (timeoutId) clearTimeout(timeoutId);
@@ -245,7 +280,14 @@ export function getDesignModelCaller(stageApi, options = {}) {
 	      const opts = callOptions && typeof callOptions === "object" ? callOptions : {};
 	      const timeoutMs = Number.isFinite(opts.timeoutMs) ? Math.max(0, Math.floor(opts.timeoutMs)) : defaultTimeoutMs;
 	      const signal = opts.signal || stageApi?.signal || options?.signal;
-	      const { timeoutMs: _timeoutMs, signal: _signal, ...forwardOpts } = opts;
+	      const {
+	        timeoutMs: _timeoutMs,
+	        signal: _signal,
+	        onTimeout,
+	        onAbort,
+	        onLateSettle,
+	        ...forwardOpts
+	      } = opts;
 	      debugLog("[design.model] call via ModelRouter", { usage, timeoutMs });
       if (signal?.aborted) throw abortErrorFromSignal(signal);
       await flushBeforeCall();
@@ -253,7 +295,14 @@ export function getDesignModelCaller(stageApi, options = {}) {
       return withHardTimeout(
         (hardSignal) => baseCall(hintedMessages, { ...forwardOpts, ...(hardSignal ? { signal: hardSignal } : {}) }),
         timeoutMs,
-        signal
+        signal,
+        {
+          onTimeout: typeof onTimeout === "function"
+            ? onTimeout
+            : () => debugLog("[design.model] timeout reached (request may continue in background)", { usage, timeoutMs }),
+          onAbort,
+          onLateSettle,
+        }
       );
     };
   }
@@ -268,7 +317,14 @@ export function getDesignModelCaller(stageApi, options = {}) {
 	      const opts = callOptions && typeof callOptions === "object" ? callOptions : {};
 	      const timeoutMs = Number.isFinite(opts.timeoutMs) ? Math.max(0, Math.floor(opts.timeoutMs)) : defaultTimeoutMs;
 	      const signal = opts.signal || stageApi?.signal || options?.signal;
-	      const { timeoutMs: _timeoutMs, signal: _signal, ...forwardOpts } = opts;
+	      const {
+	        timeoutMs: _timeoutMs,
+	        signal: _signal,
+	        onTimeout,
+	        onAbort,
+	        onLateSettle,
+	        ...forwardOpts
+	      } = opts;
 	      debugLog("[design.model] call via aiApiService.chat", { usage, timeoutMs });
       if (signal?.aborted) throw abortErrorFromSignal(signal);
       await flushBeforeCall();
@@ -276,7 +332,14 @@ export function getDesignModelCaller(stageApi, options = {}) {
       return withHardTimeout(
         (hardSignal) => baseCall(hintedMessages, { ...forwardOpts, ...(hardSignal ? { signal: hardSignal } : {}) }),
         timeoutMs,
-        signal
+        signal,
+        {
+          onTimeout: typeof onTimeout === "function"
+            ? onTimeout
+            : () => debugLog("[design.model] timeout reached (request may continue in background)", { usage, timeoutMs }),
+          onAbort,
+          onLateSettle,
+        }
       );
     };
   }

@@ -363,6 +363,63 @@ describe("agents/llm/model-router", () => {
     expect(logs.some((c) => c.level === "info" && c.msg.includes("retry after cooldown wait"))).toBe(true);
   });
 
+  it("chaos path: breaker-open skip + unhealthy failover + cooldown recovery remains stable", async () => {
+    const time = createFakeTime(0);
+    const transientErr = new Error("temporary failure");
+    transientErr.status = 503;
+
+    const { provider, calls } = createMockProvider({
+      time,
+      behaviors: {
+        m1: [{ throw: transientErr }, { content: "m1-recovered" }],
+        m2: [{ content: "m2-fallback-1" }, { content: "m2-fallback-2" }, { content: "m2-fallback-3" }],
+      },
+    });
+
+    const router = new ModelRouter({
+      models: [
+        { id: "m1", provider: "mock", tags: ["text"], limits: {} },
+        { id: "m2", provider: "mock", tags: ["text"], limits: {} },
+      ],
+      usageConfig: { worker: ["m1", "m2"] },
+      providers: { mock: provider },
+      cooldown: { baseMs: 50, maxMs: 50, wait: { maxRetries: 3, maxMs: 500, bufferMs: 0 } },
+      time,
+      strategy: "priority",
+    });
+
+    const originalGetCircuitBreaker = router._getCircuitBreaker.bind(router);
+    let forceOpenOnce = true;
+    router._getCircuitBreaker = (modelId) => {
+      const breaker = originalGetCircuitBreaker(modelId);
+      if (modelId === "m1" && forceOpenOnce) {
+        return {
+          canExecute: () => false,
+          state: "open",
+          execute: (fn) => (typeof fn === "function" ? Promise.resolve().then(fn) : Promise.resolve()),
+        };
+      }
+      return breaker;
+    };
+
+    const first = await router.call({ usage: "worker", messages: [{ role: "user", content: "first" }] });
+    expect(first.model).toBe("m2");
+    forceOpenOnce = false;
+
+    const second = await router.call({ usage: "worker", messages: [{ role: "user", content: "second" }] });
+    expect(second.model).toBe("m2");
+    expect(router.getHealth("m1")?.failures).toBe(1);
+
+    const third = await router.call({ usage: "worker", messages: [{ role: "user", content: "third" }] });
+    expect(third.model).toBe("m2");
+
+    time.advance(60);
+    const fourth = await router.call({ usage: "worker", messages: [{ role: "user", content: "fourth" }] });
+    expect(fourth.model).toBe("m1");
+
+    expect(calls.map((c) => c.model)).toEqual(["m2", "m1", "m2", "m2", "m1"]);
+  });
+
   it("round_robin distributes calls across models", async () => {
     const time = createFakeTime(0);
     const { provider } = createMockProvider({
@@ -1849,6 +1906,32 @@ describe("agents/llm/model-router", () => {
     await expect(limiter.schedule(() => "ok")).resolves.toBe("ok");
     expect(limiter._pumping).toBe(false);
     expect(limiter._activePumpGeneration).toBe(0);
+    expect(limiter.getState().deadlockRecoveries).toBeGreaterThanOrEqual(1);
+  });
+
+  it("TokenBucketRateLimiter: deadlock recovery preserves FIFO order and task completeness", async () => {
+    const time = createFakeTime(20_000);
+    const onDeadlockRecovery = vi.fn();
+    const limiter = new TokenBucketRateLimiter({
+      rps: Infinity,
+      burst: 1,
+      concurrency: 1,
+      time,
+      onDeadlockRecovery,
+    });
+
+    limiter._pumping = true;
+    limiter._activePumpGeneration = 9;
+    limiter._pumpStartedAt = 1;
+    limiter._recoverFromDeadlock(time.now());
+
+    const out = await limiter.schedule(async () => "ok");
+    expect(out).toBe("ok");
+    expect(onDeadlockRecovery).toHaveBeenCalledTimes(1);
+    expect(onDeadlockRecovery.mock.calls[0][0]).toMatchObject({
+      recoveredAtMs: expect.any(Number),
+      generation: expect.any(Number),
+    });
   });
 
   it("TokenBucketRateLimiter: rejects when queue full (maxQueue=0)", async () => {

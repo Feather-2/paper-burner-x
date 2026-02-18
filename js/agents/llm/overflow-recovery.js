@@ -32,6 +32,14 @@ function extractErrorMessage(error) {
   return nested || "";
 }
 
+function parseIntToken(value) {
+  const raw = typeof value === "number" && Number.isFinite(value) ? String(Math.floor(value)) : String(value ?? "");
+  const cleaned = raw.replace(/[\s,_]/g, "").trim();
+  if (!/^\d+$/.test(cleaned)) return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
 /**
  * Parse common "context length exceeded" error messages into structured values.
  *
@@ -45,15 +53,18 @@ function extractErrorMessage(error) {
 export function parseContextOverflowError(error) {
   const message = extractErrorMessage(error);
   if (!message) return null;
+  const text = message.replace(/\s+/g, " ").trim();
 
   // Anthropic-style
   {
-    const m = message.match(/input length and `max_tokens` exceed context limit:\s*(\d+)\s*\+\s*(\d+)\s*>\s*(\d+)/i);
+    const m =
+      text.match(/input\s+length\s+and\s+[`'"]?max[_\s-]?tokens?[`'"]?\s+exceed\s+context\s+limit:\s*([0-9_,]+)\s*\+\s*([0-9_,]+)\s*>\s*([0-9_,]+)/i)
+      || text.match(/input\s+tokens?\s*\(?([0-9_,]+)\)?\s*\+\s*(?:output|completion|[`'"]?max[_\s-]?tokens?[`'"]?)\s*(?:tokens?)?\s*\(?([0-9_,]+)\)?\s+exceed(?:s)?\s+(?:the\s+)?(?:context|token)\s+(?:limit|window)(?:\s+of)?\s*([0-9_,]+)/i);
     if (m) {
-      const inputLength = Number(m[1]);
-      const maxTokens = Number(m[2]);
-      const contextLimit = Number(m[3]);
-      if (Number.isFinite(inputLength) && Number.isFinite(maxTokens) && Number.isFinite(contextLimit)) {
+      const inputLength = parseIntToken(m[1]);
+      const maxTokens = parseIntToken(m[2]);
+      const contextLimit = parseIntToken(m[3]);
+      if (inputLength !== null && maxTokens !== null && contextLimit !== null) {
         return { inputLength, maxTokens, contextLimit, provider: "anthropic" };
       }
     }
@@ -61,24 +72,40 @@ export function parseContextOverflowError(error) {
 
   // OpenAI / OpenAI-compatible
   {
-    const m = message.match(/maximum context length is\s*(\d+)\s*tokens?.*requested\s*(\d+)\s*tokens?.*\((\d+)\s*in the messages?,\s*(\d+)\s*in the completion\)/i);
+    const m =
+      text.match(/maximum\s+context\s+length\s+is\s*([0-9_,]+)\s*tokens?.*requested\s*([0-9_,]+)\s*tokens?.*\(([0-9_,]+)\s*in\s+(?:the\s+)?(?:messages?|prompt),\s*([0-9_,]+)\s*in\s+(?:the\s+)?(?:completion|output)\)/i)
+      || text.match(/maximum\s+context\s+length\s+is\s*([0-9_,]+)\s*tokens?.*requested\s*([0-9_,]+)\s*tokens?.*\(([0-9_,]+)\s*in\s+(?:the\s+)?(?:messages?|prompt).+?([0-9_,]+)\s*in\s+(?:the\s+)?(?:completion|output)\)/i);
     if (m) {
-      const contextLimit = Number(m[1]);
-      const requested = Number(m[2]);
-      const inputLength = Number(m[3]);
-      const maxTokens = Number(m[4]);
-      if (Number.isFinite(inputLength) && Number.isFinite(maxTokens) && Number.isFinite(contextLimit) && Number.isFinite(requested)) {
+      const contextLimit = parseIntToken(m[1]);
+      const requested = parseIntToken(m[2]);
+      const inputLength = parseIntToken(m[3]);
+      const maxTokens = parseIntToken(m[4]);
+      if (inputLength !== null && maxTokens !== null && contextLimit !== null && requested !== null) {
         return { inputLength, maxTokens, contextLimit, provider: "openai" };
+      }
+    }
+  }
+
+  // Generic "requested/got exceeds limit" variants.
+  {
+    const m = text.match(
+      /(?:context[_\s-]?length[_\s-]?exceeded|context\s+length|maximum\s+context\s+length).{0,120}?(?:limit|max(?:imum)?(?:\s+context\s+length)?|is)\s*([0-9_,]+).{0,120}?(?:requested|got|received)\s*([0-9_,]+)/i
+    );
+    if (m) {
+      const contextLimit = parseIntToken(m[1]);
+      const requested = parseIntToken(m[2]);
+      if (contextLimit !== null && requested !== null) {
+        return { inputLength: requested, maxTokens: 0, contextLimit, provider: "openai" };
       }
     }
   }
 
   // More relaxed OpenAI-compatible variants.
   {
-    const m = message.match(/maximum context length is\s*(\d+)\s*tokens?/i);
+    const m = text.match(/maximum\s+context\s+length\s+is\s*([0-9_,]+)\s*tokens?/i);
     if (m) {
-      const contextLimit = Number(m[1]);
-      if (Number.isFinite(contextLimit)) {
+      const contextLimit = parseIntToken(m[1]);
+      if (contextLimit !== null) {
         // We don't know the exact split; surface the limit so callers can retry with truncation.
         return { inputLength: 0, maxTokens: 0, contextLimit, provider: "openai" };
       }

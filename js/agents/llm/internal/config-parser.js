@@ -9,6 +9,10 @@ import { isPlainObject, toNonEmptyString, toPositiveInt } from "../../shared/ind
 const DEFAULT_BASE_COOLDOWN_MS = 60_000;
 const DEFAULT_MAX_COOLDOWN_MS = 600_000;
 const DEFAULT_BACKOFF_MULTIPLIER = 2;
+const DEFAULT_COOLDOWN_WAIT_MAX_RETRIES = 1;
+const DEFAULT_COOLDOWN_WAIT_MAX_MS = 30_000;
+const DEFAULT_COOLDOWN_WAIT_BUFFER_MS = 100;
+const DEFAULT_COOLDOWN_WAIT_BACKOFF_MULTIPLIER = 1;
 
 /**
  * @param {unknown} value
@@ -44,6 +48,12 @@ function toBackoffMultiplier(v, fallback) {
   if (n >= 1) return n;
   if (n > 0) return 1;
   return fallback;
+}
+
+function toNonNegativeInt(v, fallback) {
+  const n = typeof v === "number" && Number.isFinite(v) ? v : Number(v);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.floor(n);
 }
 
 /**
@@ -149,6 +159,10 @@ export function applyModelRouterConfig(
     baseCooldownMs,
     maxCooldownMs,
     backoffMultiplier,
+    cooldownWaitMaxRetries,
+    cooldownWaitMaxMs,
+    cooldownWaitBufferMs,
+    cooldownWaitBackoffMultiplier,
     usageTags,
     time,
     retryStrategy = null,
@@ -225,6 +239,23 @@ export function applyModelRouterConfig(
   router._backoffMultiplier = toBackoffMultiplier(
     cooldownCfg?.multiplier ?? cooldownCfg?.backoffMultiplier ?? backoffMultiplier,
     DEFAULT_BACKOFF_MULTIPLIER
+  );
+  const cooldownWaitCfg = isPlainObject(cooldownCfg?.wait) ? cooldownCfg.wait : null;
+  router._cooldownWaitMaxRetries = toNonNegativeInt(
+    cooldownWaitCfg?.maxRetries ?? cooldownCfg?.waitMaxRetries ?? cooldownWaitMaxRetries,
+    DEFAULT_COOLDOWN_WAIT_MAX_RETRIES
+  );
+  router._cooldownWaitMaxMs = toNonNegativeInt(
+    cooldownWaitCfg?.maxMs ?? cooldownCfg?.waitMaxMs ?? cooldownWaitMaxMs,
+    DEFAULT_COOLDOWN_WAIT_MAX_MS
+  );
+  router._cooldownWaitBufferMs = toNonNegativeInt(
+    cooldownWaitCfg?.bufferMs ?? cooldownCfg?.waitBufferMs ?? cooldownWaitBufferMs,
+    DEFAULT_COOLDOWN_WAIT_BUFFER_MS
+  );
+  router._cooldownWaitBackoffMultiplier = toBackoffMultiplier(
+    cooldownWaitCfg?.backoffMultiplier ?? cooldownCfg?.waitBackoffMultiplier ?? cooldownWaitBackoffMultiplier,
+    DEFAULT_COOLDOWN_WAIT_BACKOFF_MULTIPLIER
   );
   // Backward-compatible alias (legacy callers/events).
   router._cooldownMs = baseMs;

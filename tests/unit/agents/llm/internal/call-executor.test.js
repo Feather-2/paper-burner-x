@@ -432,7 +432,7 @@ describe("callWithPerformanceRouting", () => {
     expect(result.content).toBe("retry-ok");
     expect(sleepSpy).toHaveBeenCalledTimes(1);
     expect(router.call).toHaveBeenCalledWith(
-      expect.objectContaining({ usage: "cooldown", _waitRetryCount: 0 })
+      expect.objectContaining({ usage: "cooldown", _waitRetryCount: 1 })
     );
   });
 
@@ -460,7 +460,7 @@ describe("callWithPerformanceRouting", () => {
 
     expect(result.content).toBe("retry-ok");
     expect(router.call).toHaveBeenCalledWith(
-      expect.objectContaining({ usage: "   ", _waitRetryCount: "01" })
+      expect.objectContaining({ usage: "   ", _waitRetryCount: 1 })
     );
   });
 
@@ -665,6 +665,69 @@ describe("callWithStandardRouting", () => {
     expect(router.call).toHaveBeenCalledWith(
       expect.objectContaining({ usage: "cooldown", _waitRetryCount: 1 })
     );
+  });
+
+  it("uses configurable cooldown wait policy with backoff and emits cooldown-wait event", async () => {
+    const time = createFakeTime(0);
+    const { router } = createRouter({
+      time,
+      models: [{ id: "m1", provider: "mock", tags: ["text"] }],
+      providers: {},
+      isAvailable: () => false,
+      shortestCooldown: { modelId: "m1", remainingMs: 10 },
+      callResult: { content: "retry-ok", model: "m1", provider: "mock" },
+    });
+    router._cooldownWaitMaxRetries = 3;
+    router._cooldownWaitBackoffMultiplier = 2;
+    router._cooldownWaitBufferMs = 0;
+    router._cooldownWaitMaxMs = 1000;
+
+    const sleepSpy = vi.spyOn(time, "sleep");
+
+    const result = await callWithStandardRouting({
+      router,
+      usage: "cooldown",
+      messages: [],
+      images: [],
+      requiredTags: new Set(),
+      orderedCandidates: ["m1"],
+      waitRetryCount: 1,
+    });
+
+    expect(result.content).toBe("retry-ok");
+    expect(sleepSpy).toHaveBeenCalledWith(20);
+    expect(router.call).toHaveBeenCalledWith(
+      expect.objectContaining({ usage: "cooldown", _waitRetryCount: 2 })
+    );
+    const waitEvents = findEvents(router.emit, "model:cooldown-wait");
+    expect(waitEvents).toHaveLength(1);
+    expect(waitEvents[0]).toMatchObject({ modelId: "m1", attempt: 2, maxRetries: 3, waitMs: 20 });
+  });
+
+  it("does not wait when cooldown exceeds configured maxWaitMs", async () => {
+    const time = createFakeTime(0);
+    const { router } = createRouter({
+      time,
+      models: [{ id: "m1", provider: "mock", tags: ["text"] }],
+      providers: {},
+      isAvailable: () => false,
+      shortestCooldown: { modelId: "m1", remainingMs: 50_000 },
+    });
+    router._cooldownWaitMaxRetries = 3;
+    router._cooldownWaitMaxMs = 10_000;
+
+    await expect(
+      callWithStandardRouting({
+        router,
+        usage: "cooldown",
+        messages: [],
+        images: [],
+        requiredTags: new Set(),
+        orderedCandidates: ["m1"],
+        waitRetryCount: 0,
+      })
+    ).rejects.toThrow("All models failed for usage: cooldown");
+    expect(router.call).not.toHaveBeenCalled();
   });
 
   it("throws when orderedCandidates is empty and usage is empty string", async () => {

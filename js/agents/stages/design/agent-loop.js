@@ -166,13 +166,35 @@ export class DesignAgentLoop extends BaseAgentLoop {
     try {
       const shouldDegrade = () => shouldDegradeCheck({ stageApi, configs: [runContext?.userConfig, contentPackage?.userConfig] });
 
-      const fallbackFactory = () => {
+      const fallbackFactory = (error = null) => {
+        const phase = this.phase?.status || DesignPhase.IDLE;
+        const degradedAt = new Date().toISOString();
+        const stateSnapshot = {
+          phase,
+          iteration: this._iteration,
+          degradedCount: this.state?.degradedCount || 0,
+          slideCount: Array.isArray(this.state?.slidesMeta) ? this.state.slidesMeta.length : 0,
+          hasDeckDsl: typeof this.state?.deckHtmlDsl === "string" && this.state.deckHtmlDsl.length > 0,
+          pendingImages: Array.isArray(this.state?.pendingImages) ? this.state.pendingImages.length : 0,
+        };
         return {
           schemaVersion: SCHEMA_VERSION,
           runId,
+          status: "degraded",
+          degraded: true,
           designSystem: this.state?.designSystem || null,
           deckHtmlDsl: typeof this.state?.deckHtmlDsl === "string" ? this.state.deckHtmlDsl : "",
           slidesMeta: Array.isArray(this.state?.slidesMeta) ? this.state.slidesMeta : [],
+          degrade: {
+            stage: "design",
+            reason: error ? "error_boundary" : "fallback",
+            message: error?.message || null,
+            at: degradedAt,
+          },
+          recovery: {
+            canResume: this.archive !== null,
+            state: stateSnapshot,
+          },
         };
       };
 

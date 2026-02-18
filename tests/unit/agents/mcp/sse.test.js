@@ -24,7 +24,7 @@ vi.mock("../../../../js/agents/shared/index.js", () => {
   return { createLogger, toNonEmptyString, toPositiveInt };
 });
 
-import { SseDecoder } from "../../../../js/agents/mcp/sse.js";
+import { DEFAULT_SSE_LIMITS, SseDecoder, parseSseStream } from "../../../../js/agents/mcp/sse.js";
 
 describe("SseDecoder", () => {
   beforeEach(() => {
@@ -376,5 +376,92 @@ describe("SseDecoder", () => {
     const decoder3 = new SseDecoder();
     expect(decoder3.decode({})).toBeNull();
     expect(decoder3.decode("")).toBeNull();
+  });
+});
+
+describe("parseSseStream", () => {
+  const makeStream = (steps) => {
+    let idx = 0;
+    const reader = {
+      read: vi.fn(async () => {
+        const step = steps[idx++] || { done: true, value: undefined };
+        if (step.delayMs) {
+          await new Promise((resolve) => setTimeout(resolve, step.delayMs));
+        }
+        if (step.error) throw step.error;
+        return { done: Boolean(step.done), value: step.value };
+      }),
+      cancel: vi.fn(async () => {}),
+      releaseLock: vi.fn(),
+    };
+    return {
+      getReader: () => reader,
+      reader,
+    };
+  };
+
+  it("exports default limit contract", () => {
+    expect(DEFAULT_SSE_LIMITS.maxLineBytes).toBeGreaterThan(0);
+    expect(DEFAULT_SSE_LIMITS.maxBufferBytes).toBeGreaterThan(0);
+    expect(DEFAULT_SSE_LIMITS.maxEventChars).toBeGreaterThan(0);
+    expect(DEFAULT_SSE_LIMITS.maxConsecutiveReadTimeouts).toBe(1);
+  });
+
+  it("tolerates intermittent read timeouts for low-frequency streams", async () => {
+    vi.useFakeTimers();
+    try {
+      const text = "data: hello\n\n";
+      const chunk = new TextEncoder().encode(text);
+      const stream = makeStream([
+        { delayMs: 15, done: false, value: chunk },
+        { done: true },
+      ]);
+
+      const timeoutSpy = vi.fn();
+      const collectPromise = (async () => {
+        const out = [];
+        for await (const evt of parseSseStream(stream, {
+          readTimeoutMs: 5,
+          maxConsecutiveReadTimeouts: 3,
+          onReadTimeout: timeoutSpy,
+        })) {
+          out.push(evt);
+        }
+        return out;
+      })();
+
+      await vi.advanceTimersByTimeAsync(20);
+      const events = await collectPromise;
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ event: "message", data: "hello" });
+      expect(timeoutSpy).toHaveBeenCalledTimes(2);
+      expect(stream.reader.cancel).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels reader when consecutive timeout tolerance is exceeded", async () => {
+    vi.useFakeTimers();
+    try {
+      const stream = makeStream([{ delayMs: 30, done: false, value: new Uint8Array([0x0a]) }]);
+      const run = (async () => {
+        const out = [];
+        for await (const evt of parseSseStream(stream, {
+          readTimeoutMs: 5,
+          maxConsecutiveReadTimeouts: 1,
+        })) {
+          out.push(evt);
+        }
+        return out;
+      })();
+
+      const assertion = expect(run).rejects.toMatchObject({ name: "SseReadTimeoutError" });
+      await vi.advanceTimersByTimeAsync(6);
+      await assertion;
+      expect(stream.reader.cancel).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

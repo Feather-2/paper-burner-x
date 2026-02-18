@@ -171,7 +171,9 @@ export function createTracedAiApiService(aiApiService, traceContext) {
 }
 
 export async function alignClaimsToSlides(slideIntents, claims, constraints = {}) {
-  const aiApiService = constraints?.__services?.aiApiService || globalThis?.aiApiService;
+  const serviceFromConstraints = constraints?.__services?.aiApiService || constraints?.aiApiService || null;
+  const allowGlobalFallback = constraints?.allowGlobalAiApiService === true;
+  const aiApiService = serviceFromConstraints || (allowGlobalFallback ? globalThis?.aiApiService : null);
   const systemHint = constraints?.__services?.runtimeHints?.system || constraints?.runtimeHints?.system;
   const claimIdSet = new Set((Array.isArray(claims) ? claims : []).map((c) => c?.claimId).filter(Boolean));
   const slideIdSet = new Set((Array.isArray(slideIntents) ? slideIntents : []).map((s) => s?.slideIntentId).filter(Boolean));
@@ -253,7 +255,10 @@ export function ensureTraceContext(api, traceContext) {
 }
 
 export function createStageEmitter(api) {
-  return (name, payload) => api.emit(name.replace(/\./g, ":"), { actor: "textprep", status: "completed", payload });
+  return (name, payload, status = "completed") => {
+    const normalizedStatus = typeof status === "string" && status.trim() ? status.trim() : "completed";
+    api.emit(name.replace(/\./g, ":"), { actor: "textprep", status: normalizedStatus, payload });
+  };
 }
 
 export function createShouldDegrade(api, runContext) {

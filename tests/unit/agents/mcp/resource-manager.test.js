@@ -504,6 +504,7 @@ for (const [exportName] of functionExports) {
           expect(listMethod).toBeTruthy();
 
           await callWithFallback(mgr[listMethod].bind(mgr), [["p1"], [{ providerId: "p1" }], []]);
+          if (typeof mgr.flushPersist === "function") await mgr.flushPersist();
 
           const stored = storage._map.get(RESOURCES_CACHE_KEY);
           expect(stored).toBeTruthy();
@@ -809,6 +810,9 @@ for (const [exportName] of functionExports) {
           const result = await callWithFallback(mgr[readMethod].bind(mgr), [[{ providerId: "p1", uri }], ["p1", uri], [uri]]);
           expect(unwrapContents(result)?.[0]?.text).toBe("fresh");
           expect(client.readResource).toHaveBeenCalledTimes(1);
+          if (typeof mgr.getStats === "function") {
+            expect(mgr.getStats().hydrate.droppedVersionMismatch).toBeGreaterThanOrEqual(1);
+          }
         });
 
         it("read resource: error handling (client throws) surfaces an Error or returns an error-shaped result", async () => {
@@ -890,6 +894,55 @@ for (const [exportName] of functionExports) {
           if ("id" in sub1 && "id" in sub2) {
             expect(sub1.id).toBeTruthy();
             expect(sub2.id).toBeTruthy();
+          }
+        });
+
+        it("exposes persist stats and supports flushPersist ack", async () => {
+          const { api: client } = createClientStub();
+          const storage = createStorageMock();
+
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], { client, storage });
+          const listMethod = findMethod(mgr, [/^listResources$/i, /resources.*list/i, /list.*resources/i]);
+          expect(listMethod).toBeTruthy();
+
+          await callWithFallback(mgr[listMethod].bind(mgr), [["p1"], [{ providerId: "p1" }], []]);
+          if (typeof mgr.flushPersist === "function") await mgr.flushPersist();
+          if (typeof mgr.getStats === "function") {
+            const stats = mgr.getStats();
+            expect(stats.persist.attempted).toBeGreaterThanOrEqual(1);
+            expect(stats.persist.succeeded).toBeGreaterThanOrEqual(1);
+            expect(stats.persist.pending).toBe(0);
+          }
+        });
+
+        it("tracks provider replacement resubscribe attempts", async () => {
+          const { api: client } = createClientStub();
+          client.subscribeNotifications = vi.fn((handler) => {
+            client._notifyHandler = handler;
+            return () => {};
+          });
+          const storage = createStorageMock();
+
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], { client, storage });
+
+          const subMethod = findMethod(mgr, [/^subscribe/i, /resource.*subscribe/i, /subscribe.*resource/i]);
+          expect(subMethod).toBeTruthy();
+          await callWithFallback(mgr[subMethod].bind(mgr), [[{ providerId: "p1", uri: "file:///project/README.md" }, vi.fn()]]);
+
+          const replacement = {
+            ...client,
+            subscribeNotifications: vi.fn(() => () => {}),
+            subscribeResource: vi.fn(async () => ({ ok: true })),
+          };
+          mgr._ensureProviderNotifications("p1", replacement);
+          await Promise.resolve();
+
+          if (typeof mgr.getStats === "function") {
+            const stats = mgr.getStats();
+            expect(stats.subscriptions.providerReplacements).toBeGreaterThanOrEqual(1);
+            expect(stats.subscriptions.resubscribeAttempts).toBeGreaterThanOrEqual(1);
           }
         });
 

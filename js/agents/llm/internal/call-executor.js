@@ -35,6 +35,83 @@ import { isPermanentAuthError, toErrorInfo } from "./fallback.js";
 
 const REDACTED = "[REDACTED]";
 const MAX_ERROR_MESSAGE_CHARS = 500;
+const DEFAULT_COOLDOWN_WAIT_MAX_RETRIES = 1;
+const DEFAULT_COOLDOWN_WAIT_MAX_MS = 30_000;
+const DEFAULT_COOLDOWN_WAIT_BUFFER_MS = 100;
+const DEFAULT_COOLDOWN_WAIT_BACKOFF_MULTIPLIER = 1;
+
+function normalizeNonNegativeInt(value, fallback) {
+  const n = typeof value === "number" && Number.isFinite(value) ? value : Number(value);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.floor(n);
+}
+
+function normalizeWaitRetryCount(waitRetryCount) {
+  return normalizeNonNegativeInt(waitRetryCount, 0);
+}
+
+/**
+ * @param {ModelRouter} router
+ * @returns {{ maxRetries: number, maxWaitMs: number, bufferMs: number, backoffMultiplier: number }}
+ */
+function getCooldownWaitPolicy(router) {
+  const maxRetries = normalizeNonNegativeInt(router?._cooldownWaitMaxRetries, DEFAULT_COOLDOWN_WAIT_MAX_RETRIES);
+  const maxWaitMs = normalizeNonNegativeInt(router?._cooldownWaitMaxMs, DEFAULT_COOLDOWN_WAIT_MAX_MS);
+  const bufferMs = normalizeNonNegativeInt(router?._cooldownWaitBufferMs, DEFAULT_COOLDOWN_WAIT_BUFFER_MS);
+  const backoffMultiplierRaw = Number(router?._cooldownWaitBackoffMultiplier);
+  const backoffMultiplier =
+    Number.isFinite(backoffMultiplierRaw) && backoffMultiplierRaw > 0
+      ? Math.max(1, backoffMultiplierRaw)
+      : DEFAULT_COOLDOWN_WAIT_BACKOFF_MULTIPLIER;
+  return { maxRetries, maxWaitMs, bufferMs, backoffMultiplier };
+}
+
+/**
+ * @param {{
+ *   router: ModelRouter,
+ *   usage: string,
+ *   messages: Array<unknown>,
+ *   images?: Array<unknown>,
+ *   eligibleCandidates: string[],
+ *   waitRetryCount: number,
+ * }} input
+ * @returns {Promise<{content: string, model: string, provider: string, latencyMs: number} | null>}
+ */
+async function maybeWaitForCooldownAndRetry({ router, usage, messages, images, eligibleCandidates, waitRetryCount }) {
+  const { maxRetries, maxWaitMs, bufferMs, backoffMultiplier } = getCooldownWaitPolicy(router);
+  const attempt = normalizeWaitRetryCount(waitRetryCount);
+  if (maxRetries <= 0 || attempt >= maxRetries) return null;
+
+  const waitInfo = router._getShortestCooldown(eligibleCandidates);
+  if (!waitInfo || typeof waitInfo.remainingMs !== "number" || !Number.isFinite(waitInfo.remainingMs) || waitInfo.remainingMs <= 0) {
+    return null;
+  }
+
+  const baseWaitMs = Math.ceil(waitInfo.remainingMs);
+  const backoffFactor = Math.pow(backoffMultiplier, attempt);
+  const boundedWaitMs = Math.ceil(baseWaitMs * backoffFactor);
+  if (maxWaitMs > 0 && boundedWaitMs > maxWaitMs) return null;
+
+  const waitMs = Math.max(0, boundedWaitMs + bufferMs);
+  router._logger.info(`[ModelRouter] all models in cooldown, waiting ${waitMs}ms for ${waitInfo.modelId}`);
+  try {
+    router.emit("model:cooldown-wait", {
+      usage,
+      modelId: waitInfo.modelId || null,
+      attempt: attempt + 1,
+      maxRetries,
+      waitMs,
+      remainingMs: waitInfo.remainingMs,
+    });
+  } catch {
+    // ignore event emission failures
+  }
+  await router._time.sleep(waitMs);
+  router._logger.info("[ModelRouter] retry after cooldown wait");
+  return /** @type {Promise<{content: string, model: string, provider: string, latencyMs: number}>} */ (
+    router.call({ usage, messages, images, _waitRetryCount: attempt + 1 })
+  );
+}
 
 /**
  * @param {unknown} err - Raw error to sanitize.
@@ -278,6 +355,7 @@ export async function callWithPerformanceRouting({
   taskComplexity,
   waitRetryCount,
 }) {
+  const normalizedWaitRetryCount = normalizeWaitRetryCount(waitRetryCount);
   let lastError = null;
   const eligibleCandidates = [];
   const tried = new Set();
@@ -367,16 +445,15 @@ export async function callWithPerformanceRouting({
 
   // After trying all candidates: if all are in cooldown, wait briefly and retry once.
   if (triedCount === 0 && eligibleCount > 0 && cooldownCount === eligibleCount) {
-    const waitInfo = router._getShortestCooldown(eligibleCandidates);
-    if (waitRetryCount < 1 && waitInfo && waitInfo.remainingMs > 0 && waitInfo.remainingMs < 30_000) {
-      const waitMs = Math.ceil(waitInfo.remainingMs);
-      router._logger.info(`[ModelRouter] all models in cooldown, waiting ${waitMs}ms for ${waitInfo.modelId}`);
-      await router._time.sleep(waitMs + 100);
-      router._logger.info(`[ModelRouter] retry after cooldown wait`);
-      return /** @type {Promise<{content: string, model: string, provider: string, latencyMs: number}>} */ (
-        router.call({ usage, messages, images, _waitRetryCount: waitRetryCount + 1 })
-      );
-    }
+    const retry = await maybeWaitForCooldownAndRetry({
+      router,
+      usage,
+      messages,
+      images,
+      eligibleCandidates,
+      waitRetryCount: normalizedWaitRetryCount,
+    });
+    if (retry) return retry;
   }
 
   const msg = `All models failed for usage: ${usage}`;
@@ -398,6 +475,7 @@ export async function callWithStandardRouting({
   orderedCandidates,
   waitRetryCount,
 }) {
+  const normalizedWaitRetryCount = normalizeWaitRetryCount(waitRetryCount);
   let lastError = null;
   let triedCount = 0;
   let eligibleCount = 0;
@@ -460,16 +538,15 @@ export async function callWithStandardRouting({
 
   // After trying all candidates: if all are in cooldown, wait briefly and retry once.
   if (triedCount === 0 && eligibleCount > 0 && cooldownCount === eligibleCount) {
-    const waitInfo = router._getShortestCooldown(eligibleCandidates);
-    if (waitRetryCount < 1 && waitInfo && waitInfo.remainingMs > 0 && waitInfo.remainingMs < 30_000) {
-      const waitMs = Math.ceil(waitInfo.remainingMs);
-      router._logger.info(`[ModelRouter] all models in cooldown, waiting ${waitMs}ms for ${waitInfo.modelId}`);
-      await router._time.sleep(waitMs + 100);
-      router._logger.info(`[ModelRouter] retry after cooldown wait`);
-      return /** @type {Promise<{content: string, model: string, provider: string, latencyMs: number}>} */ (
-        router.call({ usage, messages, images, _waitRetryCount: waitRetryCount + 1 })
-      );
-    }
+    const retry = await maybeWaitForCooldownAndRetry({
+      router,
+      usage,
+      messages,
+      images,
+      eligibleCandidates,
+      waitRetryCount: normalizedWaitRetryCount,
+    });
+    if (retry) return retry;
   }
 
   const msg = `All models failed for usage: ${usage}`;

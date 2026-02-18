@@ -313,6 +313,9 @@ describe("VisualSubAgent", () => {
       expect(result.report.errors).toHaveLength(1);
       expect(result.report.errors[0].type).toBe("ai-image");
       expect(result.report.errors[0].message).toContain("Timed out after 5ms");
+      expect(result.report.errors[0].backgroundMayContinue).toBe(true);
+      expect(Array.isArray(result.report.timeoutTelemetry)).toBe(true);
+      expect(result.report.timeoutTelemetry.some((item) => item.kind === "ai-image" && item.event === "timeout")).toBe(true);
       expect(result.slots[0].status).toBe(VisualSlotStatus.FAILED);
     } finally {
       vi.useRealTimers();

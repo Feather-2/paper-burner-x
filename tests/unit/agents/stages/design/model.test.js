@@ -283,6 +283,33 @@ describe("getDesignModelCaller", () => {
 	    }
 	  });
 
+  it("provides timeout observability hooks and background continuation hint", async () => {
+    vi.useFakeTimers();
+    try {
+      const modelRouterCall = vi.fn(() => new Promise((resolve) => setTimeout(() => resolve("late"), 20)));
+      const stageApi = { modelRouter: { call: modelRouterCall } };
+      const caller = getDesignModelCaller(stageApi);
+      const onTimeout = vi.fn();
+      const onLateSettle = vi.fn();
+
+      const promise = caller([], { timeoutMs: 5, onTimeout, onLateSettle });
+      const assertion = expect(promise).rejects.toMatchObject({
+        name: "TimeoutError",
+        timedOut: true,
+        mayContinueInBackground: true,
+      });
+      await vi.advanceTimersByTimeAsync(5);
+      await assertion;
+
+      await vi.advanceTimersByTimeAsync(20);
+      await Promise.resolve();
+      expect(onTimeout).toHaveBeenCalledTimes(1);
+      expect(onLateSettle).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not schedule timeout when timeoutMs <= 0", async () => {
     const modelRouterCall = vi.fn(() => Promise.resolve("ok"));
     const stageApi = { modelRouter: { call: modelRouterCall } };

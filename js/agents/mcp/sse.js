@@ -3,6 +3,14 @@ import { createLogger, toNonEmptyString, toPositiveInt, protoSafeReviver} from "
 const DEFAULT_MAX_LINE_BYTES = 256 * 1024; // 256KiB
 const DEFAULT_MAX_BUFFER_BYTES = 2 * 1024 * 1024; // 2MiB
 const DEFAULT_MAX_EVENT_CHARS = 1 * 1024 * 1024; // 1M chars
+const DEFAULT_MAX_CONSECUTIVE_READ_TIMEOUTS = 1;
+
+export const DEFAULT_SSE_LIMITS = Object.freeze({
+  maxLineBytes: DEFAULT_MAX_LINE_BYTES,
+  maxBufferBytes: DEFAULT_MAX_BUFFER_BYTES,
+  maxEventChars: DEFAULT_MAX_EVENT_CHARS,
+  maxConsecutiveReadTimeouts: DEFAULT_MAX_CONSECUTIVE_READ_TIMEOUTS,
+});
 
 const logger = createLogger("mcp/sse");
 
@@ -259,6 +267,8 @@ export class NewlineDecoder {
  * @property {number=} maxLineBytes
  * @property {number=} maxBufferBytes
  * @property {number=} maxEventChars
+ * @property {number=} maxConsecutiveReadTimeouts
+ * @property {(info: { timeoutMs: number, consecutiveTimeouts: number, totalTimeouts: number }) => void=} onReadTimeout
  */
 
 /**
@@ -272,11 +282,13 @@ export class NewlineDecoder {
  * @property {number=} maxLineBytes
  * @property {number=} maxBufferBytes
  * @property {number=} maxEventChars
+ * @property {number=} maxConsecutiveReadTimeouts
  * @property {boolean=} reconnect
  * @property {number=} maxReconnects
  * @property {number=} reconnectBackoffMs
  * @property {number=} maxReconnectBackoffMs
  * @property {(evt: {event: string, data: string, id: string|null, retry: number|null}) => void=} onEvent
+ * @property {(info: { timeoutMs: number, consecutiveTimeouts: number, totalTimeouts: number }) => void=} onReadTimeout
  */
 
 /**
@@ -298,7 +310,15 @@ export class NewlineDecoder {
  */
 export async function* parseSseStream(
   stream,
-  { signal, readTimeoutMs = 0, maxLineBytes = 0, maxBufferBytes = 0, maxEventChars = 0 } = {}
+  {
+    signal,
+    readTimeoutMs = 0,
+    maxLineBytes = 0,
+    maxBufferBytes = 0,
+    maxEventChars = 0,
+    maxConsecutiveReadTimeouts = DEFAULT_MAX_CONSECUTIVE_READ_TIMEOUTS,
+    onReadTimeout,
+  } = {}
 ) {
   if (!stream || typeof stream.getReader !== "function") {
     throw new Error("SSE: response body is not a readable stream");
@@ -313,6 +333,13 @@ export async function* parseSseStream(
     maxBufferBytes: normalizeSseLimit(maxBufferBytes, DEFAULT_MAX_BUFFER_BYTES),
   });
   const decoder = new SseDecoder({ maxEventChars: normalizeSseLimit(maxEventChars, DEFAULT_MAX_EVENT_CHARS) });
+  const timeoutTolerance = Math.max(
+    1,
+    toPositiveInt(maxConsecutiveReadTimeouts, DEFAULT_MAX_CONSECUTIVE_READ_TIMEOUTS)
+  );
+  const notifyReadTimeout = typeof onReadTimeout === "function" ? onReadTimeout : null;
+  let consecutiveTimeouts = 0;
+  let totalTimeouts = 0;
 
   try {
     while (true) {
@@ -326,29 +353,46 @@ export async function* parseSseStream(
       }
 
       const timeoutMs = toPositiveInt(readTimeoutMs, 0);
-      let timeoutId = null;
       const readPromise = reader.read();
-      const timeoutPromise =
-        timeoutMs > 0
-          ? new Promise((_, reject) => {
-              timeoutId = setTimeout(() => reject(makeReadTimeoutError(timeoutMs)), timeoutMs);
-            })
-          : null;
-
       let result;
-      try {
-        result = timeoutPromise ? await Promise.race([readPromise, timeoutPromise]) : await readPromise;
-      } catch (err) {
-        if (err && typeof err === "object" && "code" in err && err.code === "SSE_READ_TIMEOUT") {
+      while (true) {
+        let timeoutId = null;
+        const timeoutPromise =
+          timeoutMs > 0
+            ? new Promise((_, reject) => {
+                timeoutId = setTimeout(() => reject(makeReadTimeoutError(timeoutMs)), timeoutMs);
+              })
+            : null;
+        try {
+          result = timeoutPromise ? await Promise.race([readPromise, timeoutPromise]) : await readPromise;
+          consecutiveTimeouts = 0;
+          break;
+        } catch (err) {
+          const isTimeout = err && typeof err === "object" && "code" in err && err.code === "SSE_READ_TIMEOUT";
+          if (!isTimeout) throw err;
+          consecutiveTimeouts += 1;
+          totalTimeouts += 1;
+          try {
+            notifyReadTimeout?.({
+              timeoutMs,
+              consecutiveTimeouts,
+              totalTimeouts,
+            });
+          } catch {
+            // ignore callback errors
+          }
+          if (consecutiveTimeouts < timeoutTolerance) {
+            continue;
+          }
           try {
             await reader.cancel("read_timeout");
           } catch {
             // ignore
           }
+          throw err;
+        } finally {
+          if (timeoutId) clearTimeout(timeoutId);
         }
-        throw err;
-      } finally {
-        if (timeoutId) clearTimeout(timeoutId);
       }
 
       const { done, value } = result || {};
@@ -452,11 +496,13 @@ export async function consumeSse({
   maxLineBytes = 0,
   maxBufferBytes = 0,
   maxEventChars = 0,
+  maxConsecutiveReadTimeouts = DEFAULT_MAX_CONSECUTIVE_READ_TIMEOUTS,
   reconnect = true,
   maxReconnects = 3,
   reconnectBackoffMs = 1000,
   maxReconnectBackoffMs = 30_000,
   onEvent,
+  onReadTimeout,
 } = {}) {
   const endpoint = toNonEmptyString(url);
   if (!endpoint) throw new Error("consumeSse: url is required");
@@ -508,6 +554,8 @@ export async function consumeSse({
         maxLineBytes,
         maxBufferBytes,
         maxEventChars,
+        maxConsecutiveReadTimeouts,
+        onReadTimeout,
       })) {
         if (controller.signal.aborted) break;
         retryHintMs = typeof evt.retry === "number" && Number.isFinite(evt.retry) ? Math.max(0, Math.floor(evt.retry)) : retryHintMs;
@@ -599,6 +647,7 @@ export async function consumeSseJson({
 }
 
 export default {
+  DEFAULT_SSE_LIMITS,
   createSseParser,
   consumeSse,
   consumeSseJson,

@@ -58,6 +58,42 @@ function toErrorMessage(err) {
   return String(err?.message || err || "");
 }
 
+const CALLER_SIDE_ERROR_CODES = new Set([
+  "tool_not_found",
+  "unknown_tool",
+  "invalid_arguments",
+  "invalid_argument",
+  "invalid_args",
+  "invalid_params",
+  "method_not_found",
+  "schema_validation_failed",
+  "validation_error",
+  "bad_request",
+  "client_error",
+  "unsupported_tool",
+  "unsupported_method",
+]);
+
+function normalizeErrorCode(code) {
+  if (code === null || code === undefined) return "";
+  const s = String(code).trim().toLowerCase();
+  return s || "";
+}
+
+function isCallerSideMessage(message) {
+  const msg = String(message || "").toLowerCase();
+  if (!msg) return false;
+  if (/\bunknown\s+tool\b/.test(msg)) return true;
+  if (/\btool\s+not\s+found\b/.test(msg)) return true;
+  if (/\bno\s+such\s+tool\b/.test(msg)) return true;
+  if (/\binvalid\s+arguments?\b/.test(msg)) return true;
+  if (/\binvalid\s+params?\b/.test(msg)) return true;
+  if (/\bvalidation\s+failed\b/.test(msg)) return true;
+  if (/\bmissing\s+required\b/.test(msg)) return true;
+  if (/\bmethod\s+not\s+found\b/.test(msg)) return true;
+  return false;
+}
+
 /**
  * Classify whether an error should trip the provider circuit breaker.
  *
@@ -74,25 +110,48 @@ function toErrorMessage(err) {
 function shouldTripProviderCircuit(err) {
   if (!err) return true;
 
-  // --- Structural checks (prefer these over string matching) ---
-  if (err?.name === "AbortError") return false;
+  const name = normalizeErrorCode(err?.name);
+  if (name === "aborterror") return false;
 
-  const code = err?.code || err?.type || "";
-  if (code) {
-    const c = String(code).toLowerCase();
-    if (c === "tool_not_found" || c === "unknown_tool" || c === "invalid_arguments"
-        || c === "method_not_found" || c === "invalid_params") {
-      return false;
+  // Prefer explicit structured error data when available.
+  const structuredCodes = [
+    err?.code,
+    err?.type,
+    err?.error?.code,
+    err?.error?.type,
+    err?.mcpResult?.error?.code,
+    err?.mcpResult?.error?.type,
+  ]
+    .map(normalizeErrorCode)
+    .filter(Boolean);
+
+  if (structuredCodes.some((c) => CALLER_SIDE_ERROR_CODES.has(c))) return false;
+
+  const statusCandidates = [
+    err?.status,
+    err?.statusCode,
+    err?.response?.status,
+    err?.error?.status,
+    err?.mcpResult?.error?.status,
+  ];
+  const status = statusCandidates
+    .map((s) => Number(s))
+    .find((s) => Number.isFinite(s) && s >= 100 && s <= 999);
+
+  if (Number.isFinite(status)) {
+    if (status === 429 || status >= 500) return true;
+    if (status >= 400 && status < 500) {
+      // Explicit caller-side signals should not trip breaker.
+      if (structuredCodes.length && structuredCodes.some((c) => CALLER_SIDE_ERROR_CODES.has(c))) return false;
+      if (isCallerSideMessage(toErrorMessage(err))) return false;
+      return true;
     }
   }
 
-  // --- Message-based fallback (for errors without structured codes) ---
+  // Message fallback (best effort when no structured info).
   const msg = toErrorMessage(err).toLowerCase();
   if (!msg) return true;
-  if (/\bunknown\s+tool\b/.test(msg)) return false;
-  if (/\btool\s+not\s+found\b/.test(msg)) return false;
-  if (/\bno\s+such\s+tool\b/.test(msg)) return false;
-  if (/\binvalid\s+arguments?\b/.test(msg)) return false;
+  if (isCallerSideMessage(msg)) return false;
   return true;
 }
 
@@ -353,17 +412,39 @@ export class McpClient {
   /**
    * 调用工具（自动路由到正确的 provider）
    */
-  async callTool(toolName, args = {}, { providerId, skipCircuit = false } = /** @type {{ providerId?: string, skipCircuit?: boolean }} */ ({})) {
+  async callTool(
+    toolName,
+    args = {},
+    { providerId, skipCircuit = false, throwOnError = false } = /** @type {{ providerId?: string, skipCircuit?: boolean, throwOnError?: boolean }} */ ({})
+  ) {
+    const toFailureResult = (errorText, text = null) =>
+      new McpToolResult({
+        success: false,
+        isError: true,
+        error: errorText,
+        content: [{ type: "text", text: text || `Error calling ${toolName}: ${errorText}` }],
+      });
+    const maybeThrow = (result, { name = "McpToolCallError" } = {}) => {
+      if (!throwOnError) return result;
+      const err = /** @type {McpToolCallError} */ (new Error(toErrorMessage(result?.error || "MCP tool call failed")));
+      err.name = name;
+      err.mcpResult = result;
+      throw err;
+    };
+
     const id = toNonEmptyString(providerId) || this._defaultProviderId;
     const provider = id ? this._providers.get(id) : null;
 
     if (!provider) {
-      return new McpToolResult({
+      return maybeThrow(
+        new McpToolResult({
         success: false,
         isError: true,
         error: `No provider found: ${id}`,
         content: [{ type: "text", text: `Error: No provider found for ${id}` }],
-      });
+        }),
+        { name: "McpProviderNotFoundError" }
+      );
     }
 
     try {
@@ -384,22 +465,20 @@ export class McpClient {
     } catch (err) {
       const maybe = /** @type {McpToolCallError} */ (err);
       if (maybe?.name === "McpToolCallError" && maybe.mcpResult) {
-        return maybe.mcpResult;
+        return maybeThrow(maybe.mcpResult);
       }
       if (err?.name === "CircuitBreakerOpenError") {
-        return new McpToolResult({
+        return maybeThrow(
+          new McpToolResult({
           success: false,
           isError: true,
           error: `Provider circuit open: ${id}`,
           content: [{ type: "text", text: `Error: Provider circuit open (${id})` }],
-        });
+          }),
+          { name: "CircuitBreakerOpenError" }
+        );
       }
-      return new McpToolResult({
-        success: false,
-        isError: true,
-        error: toErrorMessage(err),
-        content: [{ type: "text", text: `Error calling ${toolName}: ${toErrorMessage(err)}` }],
-      });
+      return maybeThrow(toFailureResult(toErrorMessage(err)));
     }
   }
 

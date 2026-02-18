@@ -65,6 +65,40 @@ describe("parseContextOverflowError", () => {
     }
   });
 
+  it("parses provider message drifts with comma-separated numbers", () => {
+    const anthropicLike = new Error(
+      "input tokens (120,000) + output tokens (4,096) exceeds context window of 128,000"
+    );
+    expect(parseContextOverflowError(anthropicLike)).toEqual({
+      inputLength: 120000,
+      maxTokens: 4096,
+      contextLimit: 128000,
+      provider: "anthropic",
+    });
+
+    const openAiLike = new Error(
+      "maximum context length is 128,000 tokens, but requested 129,500 tokens (128,700 in the prompt, 800 in the output)"
+    );
+    expect(parseContextOverflowError(openAiLike)).toEqual({
+      inputLength: 128700,
+      maxTokens: 800,
+      contextLimit: 128000,
+      provider: "openai",
+    });
+  });
+
+  it("parses generic context_length_exceeded messages with requested/got fields", () => {
+    const err = new Error(
+      "context_length_exceeded: model limit 32768 tokens; requested 40000"
+    );
+    expect(parseContextOverflowError(err)).toEqual({
+      inputLength: 40000,
+      maxTokens: 0,
+      contextLimit: 32768,
+      provider: "openai",
+    });
+  });
+
   it("extracts nested messages and handles long/deep strings", () => {
     const cases = [
       {

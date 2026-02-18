@@ -83,43 +83,84 @@ function makeAbortError(signal) {
 
 function withAbortAndTimeout(
   promise,
-  { signal, timeoutMs } = /** @type {{ signal?: AbortSignal | null, timeoutMs?: number }} */ ({})
+  { signal, timeoutMs, onTimeout, onAbort: onAbortCallback, onLateSettle } = /** @type {{ signal?: AbortSignal | null, timeoutMs?: number, onTimeout?: Function, onAbort?: Function, onLateSettle?: Function }} */ ({})
 ) {
   const ms = Number.isFinite(timeoutMs) ? Math.max(0, Math.floor(timeoutMs)) : 0;
   if (!signal && !ms) return promise;
   let timer = null;
-  let onAbort = null;
+  let onAbortListener = null;
+  const notifyTimeout = typeof onTimeout === "function" ? onTimeout : null;
+  const notifyAbort = typeof onAbortCallback === "function" ? onAbortCallback : null;
+  const notifyLateSettle = typeof onLateSettle === "function" ? onLateSettle : null;
+  let timedOut = false;
+  let raceSettled = false;
+  let lateSettledNotified = false;
   return new Promise((resolve, reject) => {
     let settled = false;
     const cleanup = () => {
       if (timer) clearTimeout(timer);
-      if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+      if (signal && onAbortListener) signal.removeEventListener("abort", onAbortListener);
     };
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
+      raceSettled = true;
       cleanup();
       fn(value);
     };
 
     if (signal?.aborted) {
+      try {
+        notifyAbort?.({ timeout: false, reason: signal.reason });
+      } catch {
+        // ignore callback errors
+      }
       finish(reject, makeAbortError(signal));
       return;
     }
 
     if (signal) {
-      onAbort = () => finish(reject, makeAbortError(signal));
-      signal.addEventListener("abort", onAbort);
+      onAbortListener = () => {
+        try {
+          notifyAbort?.({ timeout: false, reason: signal.reason });
+        } catch {
+          // ignore callback errors
+        }
+        finish(reject, makeAbortError(signal));
+      };
+      signal.addEventListener("abort", onAbortListener);
     }
 
     if (ms > 0) {
-      timer = setTimeout(() => finish(reject, makeTimeoutError(ms)), ms);
+      timer = setTimeout(() => {
+        timedOut = true;
+        const err = /** @type {Error & { timedOut?: boolean, mayContinueInBackground?: boolean, timeoutMs?: number }} */ (makeTimeoutError(ms));
+        err.timedOut = true;
+        err.mayContinueInBackground = true;
+        err.timeoutMs = ms;
+        try {
+          notifyTimeout?.({ timeoutMs: ms, abortRequested: false });
+        } catch {
+          // ignore callback errors
+        }
+        finish(reject, err);
+      }, ms);
     }
 
     Promise.resolve(promise).then(
       (value) => finish(resolve, value),
       (err) => finish(reject, err)
     );
+
+    Promise.resolve(promise).finally(() => {
+      if (!timedOut || raceSettled || lateSettledNotified) return;
+      lateSettledNotified = true;
+      try {
+        notifyLateSettle?.({ timeoutMs: ms });
+      } catch {
+        // ignore callback errors
+      }
+    });
   });
 }
 
@@ -285,6 +326,7 @@ export class VisualSubAgent {
     }
 
     const errors = [];
+    const timeoutTelemetry = [];
 
     for (const slot of aiImageSlots) this._transitionSlot(slot, VisualSlotStatus.GENERATING, { slotId: slot.slotId });
     for (const slot of svgSlots) this._transitionSlot(slot, VisualSlotStatus.GENERATING, { slotId: slot.slotId });
@@ -307,7 +349,14 @@ export class VisualSubAgent {
           circuitBreakerRegistry: options.circuitBreakerRegistry,
           imageProvider: options.imageProvider,
         }),
-        { signal: options.signal, timeoutMs: imageTimeoutMs }
+        {
+          signal: options.signal,
+          timeoutMs: imageTimeoutMs,
+          onTimeout: ({ timeoutMs }) => timeoutTelemetry.push({ kind: "ai-image", event: "timeout", timeoutMs }),
+          onLateSettle: ({ timeoutMs }) => timeoutTelemetry.push({ kind: "ai-image", event: "late_settle", timeoutMs }),
+          onAbort: ({ reason, timeout }) =>
+            timeoutTelemetry.push({ kind: "ai-image", event: timeout ? "timeout_abort" : "abort", reason: String(reason || "") }),
+        }
       )
       : Promise.resolve({ filledSlots: [], report: null });
 
@@ -326,7 +375,11 @@ export class VisualSubAgent {
 
     const imageResults = imageSettled.status === "fulfilled"
       ? imageSettled.value
-      : (errors.push({ type: "ai-image", message: String(imageSettled.reason || "Unknown error") }), { filledSlots: [], report: null });
+      : (errors.push({
+        type: "ai-image",
+        message: String(imageSettled.reason || "Unknown error"),
+        ...(imageSettled.reason?.mayContinueInBackground ? { backgroundMayContinue: true } : {}),
+      }), { filledSlots: [], report: null });
 
     const svgResults = svgSettled.status === "fulfilled"
       ? svgSettled.value
@@ -379,6 +432,7 @@ export class VisualSubAgent {
         asset: assetResults.length,
       },
       errors,
+      timeoutTelemetry,
       imageReport: imageResults?.report || null,
       svgReport: svgResults?.report || null,
     };

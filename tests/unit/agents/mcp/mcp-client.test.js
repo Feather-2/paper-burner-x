@@ -200,6 +200,10 @@ describe("McpClient", () => {
     const isFailure = breaker.options.isFailure;
     expect(isFailure(null)).toBe(true);
     expect(isFailure({ name: "AbortError" })).toBe(false);
+    expect(isFailure({ code: "INVALID_PARAMS" })).toBe(false);
+    expect(isFailure({ status: 400, message: "validation failed: query is required" })).toBe(false);
+    expect(isFailure({ status: 404, message: "tool not found" })).toBe(false);
+    expect(isFailure({ status: 500, message: "upstream down" })).toBe(true);
     expect(isFailure(new Error("unknown tool"))).toBe(false);
     expect(isFailure({ message: "tool not found" })).toBe(false);
     expect(isFailure({ message: "no such tool" })).toBe(false);
@@ -370,6 +374,33 @@ describe("McpClient", () => {
     const out2 = await client.callTool("tool", {}, { skipCircuit: true });
     expect(out2.success).toBe(true);
     expect(shared.CircuitBreaker.instances.length).toBe(1);
+  });
+
+  it("supports throwOnError for consistent exception semantics", async () => {
+    const fail = new McpToolResult({
+      success: false,
+      isError: true,
+      error: "bad args",
+      content: [{ type: "text", text: "bad args" }],
+    });
+    const p1 = makeProvider({ id: "p1", callTool: vi.fn(async () => fail) });
+    const client = new McpClient({ providers: [p1] });
+
+    await expect(client.callTool("tool", {}, { throwOnError: true })).rejects.toMatchObject({
+      name: "McpToolCallError",
+      mcpResult: fail,
+    });
+
+    const breaker = client._getProviderCircuitBreaker("p1");
+    breaker.execute.mockRejectedValueOnce({ name: "CircuitBreakerOpenError" });
+    await expect(client.callTool("tool", {}, { throwOnError: true })).rejects.toMatchObject({
+      name: "CircuitBreakerOpenError",
+    });
+
+    const missing = new McpClient({ defaultProvider: "missing" });
+    await expect(missing.callTool("tool", {}, { throwOnError: true })).rejects.toMatchObject({
+      name: "McpProviderNotFoundError",
+    });
   });
 
   it("supports concurrent and rapid callTool invocations", async () => {

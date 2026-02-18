@@ -191,3 +191,35 @@ describe("DEFAULT_CORS_PROXIES", () => {
     expect(hasKnownPublicProxy).toBe(false);
   });
 });
+
+describe("validateFetchUrl", () => {
+  it("blocks private hosts by default and allows controlled private-host overrides", async () => {
+    const { validateFetchUrl } = await importSut();
+
+    expect(() => validateFetchUrl("http://127.0.0.1:8080/a")).toThrow(/private network/i);
+    expect(() =>
+      validateFetchUrl("http://127.0.0.1:8080/a", { allowedPrivateHosts: ["127.0.0.1"] })
+    ).not.toThrow();
+    expect(() =>
+      validateFetchUrl("http://localhost:3000/a", { allowedPrivateHosts: new Set(["localhost"]) })
+    ).not.toThrow();
+    expect(() => validateFetchUrl("http://[::1]/a", { allowPrivateNetwork: true })).not.toThrow();
+  });
+});
+
+describe("readTextWithLimit", () => {
+  it("enforces byte semantics for fallback response.text() paths", async () => {
+    const { readTextWithLimit } = await importSut();
+    const response = {
+      text: vi.fn(async () => "你好"),
+      headers: { get: vi.fn(() => null) },
+      body: null,
+    };
+
+    await expect(readTextWithLimit(response, { maxBytes: 4 })).rejects.toMatchObject({
+      name: "BodyTooLargeError",
+      observedBytes: 6,
+    });
+    await expect(readTextWithLimit(response, { maxBytes: 6 })).resolves.toBe("你好");
+  });
+});

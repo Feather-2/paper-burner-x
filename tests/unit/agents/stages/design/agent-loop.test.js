@@ -610,12 +610,19 @@ describe("DesignAgentLoop", () => {
       expect(context.stage).toBe("design");
       expect(context.runId).toBe("run-1");
       expect(context.shouldDegrade()).toBe(true);
-      expect(context.fallbackFactory()).toEqual({
+      expect(context.fallbackFactory()).toMatchObject({
         schemaVersion: "0.1",
         runId: "run-1",
+        status: "degraded",
+        degraded: true,
         designSystem: { theme: "ocean" },
         deckHtmlDsl: "",
         slidesMeta: [],
+        degrade: expect.objectContaining({ stage: "design" }),
+        recovery: expect.objectContaining({
+          canResume: false,
+          state: expect.objectContaining({ phase: "idle" }),
+        }),
       });
       expect(traceContext.withSpan).toHaveBeenCalledWith(
         "design.run",

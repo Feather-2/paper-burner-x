@@ -253,4 +253,25 @@ describe("filterUrlParams", () => {
       }
     }
   });
+
+  it("supports compatibility-preserving options for OAuth/signed URLs", () => {
+    const oauthUrl = "https://user:pass@example.com/callback?state=abc&code=xyz#access_token=token123";
+    const strict = filterUrlParams(oauthUrl);
+    expect(strict.url).toBe("https://example.com/callback");
+
+    const compatible = filterUrlParams(oauthUrl, {
+      preserveHash: true,
+      preserveCredentials: true,
+      preserveParams: ["state", "code"],
+    });
+    expect(compatible.url).toBe(oauthUrl);
+    expect(compatible.strippedParams).toEqual([]);
+
+    const signed = filterUrlParams("https://example.com/data?X-Amz-Signature=sig&X-Amz-Credential=cred", {
+      preserveNonWhitelisted: true,
+    });
+    expect(signed.url).toContain("X-Amz-Signature=sig");
+    expect(signed.url).toContain("X-Amz-Credential=cred");
+    expect(signed.strippedParams).toEqual([]);
+  });
 });

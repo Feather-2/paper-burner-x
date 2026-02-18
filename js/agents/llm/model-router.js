@@ -56,6 +56,10 @@ import { callWithPerformanceRouting, callWithStandardRouting, executeCall } from
  * @property {number=} baseCooldownMs
  * @property {number=} maxCooldownMs
  * @property {number=} backoffMultiplier
+ * @property {number=} cooldownWaitMaxRetries
+ * @property {number=} cooldownWaitMaxMs
+ * @property {number=} cooldownWaitBufferMs
+ * @property {number=} cooldownWaitBackoffMultiplier
  * @property {Record<string, any>=} usageTags
  * @property {ModelRouterTime=} time
  * @property {any=} retryStrategy
@@ -112,6 +116,14 @@ export class ModelRouter {
   _maxCooldownMs;
   /** @type {number} */
   _backoffMultiplier;
+  /** @type {number} */
+  _cooldownWaitMaxRetries;
+  /** @type {number} */
+  _cooldownWaitMaxMs;
+  /** @type {number} */
+  _cooldownWaitBufferMs;
+  /** @type {number} */
+  _cooldownWaitBackoffMultiplier;
   /** @type {number} */
   _cooldownMs;
   /** @type {Map<string, any>} */

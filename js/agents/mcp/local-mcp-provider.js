@@ -27,6 +27,7 @@ import { extractPageContentFromHtml, searchDuckDuckGoHtml } from "./content-extr
  * @property {number=} proxyCooldownMs
  * @property {number=} proxyMaxCooldownMs
  * @property {boolean=} allowPrivateNetwork
+ * @property {(string[]|Set<string>)=} allowedPrivateHosts
  * @property {boolean=} allowSensitiveUrlProxying
  * @property {boolean=} useUrlWhitelist
  * @property {number=} defaultTimeoutMs
@@ -85,6 +86,7 @@ export class LocalMcpProvider extends McpProvider {
     proxyCooldownMs = 60_000,
     proxyMaxCooldownMs = 15 * 60_000,
     allowPrivateNetwork = false,
+    allowedPrivateHosts = null,
     allowSensitiveUrlProxying = false,
     useUrlWhitelist = true, // P3.2: 默认启用白名单模式
     defaultTimeoutMs = 15000,
@@ -107,6 +109,7 @@ export class LocalMcpProvider extends McpProvider {
     this.maxResults = safeInt(maxResults, 10);
     this.maxSearchPages = Math.max(1, Math.min(5, safeInt(maxSearchPages, 3)));
     this.allowPrivateNetwork = allowPrivateNetwork === true;
+    this.allowedPrivateHosts = allowedPrivateHosts;
     this.allowSensitiveUrlProxying = allowSensitiveUrlProxying === true;
     this.useUrlWhitelist = useUrlWhitelist === true; // P3.2
     this._memoryStore = memoryStore; // Memory 2.0
@@ -401,7 +404,10 @@ export class LocalMcpProvider extends McpProvider {
     }
 
     try {
-      targetUrl = validateFetchUrl(targetUrl, { allowPrivateNetwork: this.allowPrivateNetwork });
+      targetUrl = validateFetchUrl(targetUrl, {
+        allowPrivateNetwork: this.allowPrivateNetwork,
+        allowedPrivateHosts: this.allowedPrivateHosts,
+      });
     } catch (err) {
       return new McpToolResult({
         success: false,

@@ -11,6 +11,7 @@ import { inspectUrlForProxy, redactUrlForLog } from "./content-sanitizer.js";
  * @property {number=} proxyMaxCooldownMs
  * @property {boolean=} allowSensitiveUrlProxying
  * @property {boolean=} useUrlWhitelist
+ * @property {(string[]|Set<string>)=} allowedPrivateHosts
  */
 
 /**
@@ -106,6 +107,24 @@ function normalizeMaxBodyBytes(v, fallback) {
   return n > 0 ? n : fallback;
 }
 
+function measureUtf8Bytes(text) {
+  const value = typeof text === "string" ? text : String(text ?? "");
+  if (!value) return 0;
+  try {
+    if (typeof TextEncoder === "function") return new TextEncoder().encode(value).byteLength;
+  } catch {
+    // ignore
+  }
+  try {
+    if (typeof Buffer !== "undefined" && typeof Buffer.byteLength === "function") {
+      return Buffer.byteLength(value, "utf8");
+    }
+  } catch {
+    // ignore
+  }
+  return value.length * 2;
+}
+
 function createBodyTooLargeError(maxBytes, observedBytes) {
   const err = /** @type {Error & { code?: string, maxBytes?: number, observedBytes?: number }} */ (
     new Error(`Response body exceeds limit (${observedBytes} > ${maxBytes} bytes)`)
@@ -134,7 +153,7 @@ function tryGetHeader(response, name) {
  * @param {{ maxBytes?: number, signal?: AbortSignal }=} options
  * @returns {Promise<string>}
  */
-async function readTextWithLimit(response, { maxBytes = Infinity, signal } = {}) {
+export async function readTextWithLimit(response, { maxBytes = Infinity, signal } = {}) {
   if (maxBytes === Infinity) return await response.text();
 
   checkCancelled(signal);
@@ -182,8 +201,9 @@ async function readTextWithLimit(response, { maxBytes = Infinity, signal } = {})
   }
 
   const text = await response.text();
-  if (text && text.length > maxBytes) {
-    throw createBodyTooLargeError(maxBytes, text.length);
+  const observedBytes = measureUtf8Bytes(text);
+  if (text && observedBytes > maxBytes) {
+    throw createBodyTooLargeError(maxBytes, observedBytes);
   }
   return text;
 }
@@ -240,11 +260,38 @@ function isPrivateIpv6(hostname) {
   return false;
 }
 
-function isPrivateHostname(hostname) {
-  let h = String(hostname || "").trim().toLowerCase();
-  if (!h) return false;
-  // URL.hostname may include brackets for IPv6 literals (e.g. "[::1]").
+function normalizeHostname(raw) {
+  let h = toNonEmptyString(raw);
+  if (!h) return null;
+  h = h.trim().toLowerCase();
   if (h.startsWith("[") && h.endsWith("]")) h = h.slice(1, -1);
+  if (h.includes("/") || h.includes("?")) h = h.split(/[/?]/)[0];
+  const colonCount = (h.match(/:/g) || []).length;
+  if (colonCount === 1 && !h.includes("::")) h = h.split(":")[0];
+  return h || null;
+}
+
+export function normalizeAllowedPrivateHosts(raw) {
+  if (raw instanceof Set) {
+    const out = new Set();
+    for (const item of raw.values()) {
+      const normalized = normalizeHostname(item);
+      if (normalized) out.add(normalized);
+    }
+    return out;
+  }
+  if (!Array.isArray(raw)) return new Set();
+  const out = new Set();
+  for (const item of raw) {
+    const normalized = normalizeHostname(item);
+    if (normalized) out.add(normalized);
+  }
+  return out;
+}
+
+function isPrivateHostname(hostname) {
+  let h = normalizeHostname(hostname) || "";
+  if (!h) return false;
   if (h === "localhost" || h.endsWith(".localhost")) return true;
   if (h.endsWith(".local")) return true;
   if (isPrivateIpv4(h)) return true;
@@ -255,10 +302,10 @@ function isPrivateHostname(hostname) {
 /**
  * Validate a URL for fetching (blocks non-HTTP(S) and private-network by default).
  * @param {any} rawUrl
- * @param {{ allowPrivateNetwork?: boolean }=} options
+ * @param {{ allowPrivateNetwork?: boolean, allowedPrivateHosts?: (string[]|Set<string>) }=} options
  * @returns {string}
  */
-export function validateFetchUrl(rawUrl, { allowPrivateNetwork = false } = {}) {
+export function validateFetchUrl(rawUrl, { allowPrivateNetwork = false, allowedPrivateHosts } = {}) {
   const url = toNonEmptyString(rawUrl);
   if (!url) throw new Error("url is required");
 
@@ -273,9 +320,11 @@ export function validateFetchUrl(rawUrl, { allowPrivateNetwork = false } = {}) {
     throw new Error(`Unsupported URL protocol: ${u.protocol || "(empty)"}`);
   }
 
-  const hostname = toNonEmptyString(u.hostname);
+  const hostname = normalizeHostname(u.hostname);
   if (!hostname) throw new Error("Invalid URL hostname");
-  if (!allowPrivateNetwork && isPrivateHostname(hostname)) {
+  const allowlist = normalizeAllowedPrivateHosts(allowedPrivateHosts);
+  const allowPrivateHost = allowlist.size > 0 && allowlist.has(hostname);
+  if (!allowPrivateNetwork && isPrivateHostname(hostname) && !allowPrivateHost) {
     throw new Error("Blocked URL hostname (private network)");
   }
 

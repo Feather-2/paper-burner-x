@@ -26,6 +26,7 @@ function isStorageLike(value) {
  * @property {number=} concurrency
  * @property {number=} maxQueue
  * @property {RateLimitTime=} time
+ * @property {(event: { recoveredAtMs: number, generation: number, queueSize: number, inFlight: number, blockedUntilMs: number }) => void=} onDeadlockRecovery
  */
 
 function defaultTime() {
@@ -100,7 +101,7 @@ export class TokenBucketRateLimiter {
   /**
    * @param {TokenBucketRateLimiterOptions} [options]
    */
-  constructor({ rps = 2, burst = 4, concurrency = 2, maxQueue = 500, time } = {}) {
+  constructor({ rps = 2, burst = 4, concurrency = 2, maxQueue = 500, time, onDeadlockRecovery } = {}) {
     const cfg = normalizeRateLimitConfig({ enabled: true, rps, burst, concurrency, maxQueue });
     this._rps = cfg.rps;
     this._burst = cfg.burst;
@@ -121,6 +122,9 @@ export class TokenBucketRateLimiter {
     this._pumpDeadlockMs = 60_000;
     this._pumpGeneration = 0;
     this._activePumpGeneration = 0;
+    this._deadlockRecoveries = 0;
+    this._lastDeadlockRecoveryMs = 0;
+    this._onDeadlockRecovery = typeof onDeadlockRecovery === "function" ? onDeadlockRecovery : null;
   }
 
   getState() {
@@ -135,6 +139,10 @@ export class TokenBucketRateLimiter {
       tokens: this._tokens,
       lastRefillMs: this._lastRefillMs,
       nowMs: this._time.now(),
+      deadlockRecoveries: this._deadlockRecoveries,
+      lastDeadlockRecoveryMs: this._lastDeadlockRecoveryMs || null,
+      pumpGeneration: this._pumpGeneration,
+      activePumpGeneration: this._activePumpGeneration,
     };
   }
 
@@ -220,15 +228,40 @@ export class TokenBucketRateLimiter {
     if (this._pumping) {
       this._pumpRequested = true;
       if (this._pumpStartedAt > 0 && (now - this._pumpStartedAt) > this._pumpDeadlockMs) {
-        logger.warn("Pump deadlock detected, forcing reset");
-        this._activePumpGeneration = 0;
-        this._pumping = false;
-        this._pumpStartedAt = 0;
+        this._recoverFromDeadlock(now);
       } else {
         return;
       }
     }
     this._pump().catch((err) => logger.warn("Pump error", { error: err?.message || String(err) }));
+  }
+
+  _recoverFromDeadlock(nowMs) {
+    const recoveredAtMs = typeof nowMs === "number" && Number.isFinite(nowMs) ? nowMs : this._time.now();
+    this._deadlockRecoveries += 1;
+    this._lastDeadlockRecoveryMs = recoveredAtMs;
+    this._activePumpGeneration = 0;
+    this._pumping = false;
+    this._pumpStartedAt = 0;
+    this._pumpRequested = false;
+    logger.warn("Pump deadlock detected, forcing reset", {
+      recoveredAtMs,
+      queueSize: this._queue.length,
+      inFlight: this._inFlight,
+      blockedUntilMs: this._blockedUntilMs,
+      recoveries: this._deadlockRecoveries,
+    });
+    try {
+      this._onDeadlockRecovery?.({
+        recoveredAtMs,
+        generation: this._pumpGeneration,
+        queueSize: this._queue.length,
+        inFlight: this._inFlight,
+        blockedUntilMs: this._blockedUntilMs,
+      });
+    } catch {
+      // ignore callback errors
+    }
   }
 
   _requestPumpSoon() {
