@@ -6,6 +6,77 @@ function normalizeMaxChars(value, fallback) {
 }
 
 const DEFAULT_MAX_CHARS = 1_000_000;
+const SAFE_JSON_OK = "ok";
+const SAFE_JSON_NULLISH = "nullish";
+const SAFE_JSON_EMPTY = "empty";
+const SAFE_JSON_OVERSIZED = "oversized";
+const SAFE_JSON_INVALID_JSON = "invalid_json";
+
+/**
+ * @typedef {object} SafeJsonParseDetailedResult
+ * @property {boolean} ok
+ * @property {any|null} value
+ * @property {"ok"|"nullish"|"empty"|"oversized"|"invalid_json"} code
+ * @property {number=} maxChars
+ * @property {number=} observedChars
+ * @property {string=} error
+ */
+
+function normalizeErrorMessage(err) {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  const normalized = msg.trim();
+  return normalized || "JSON parse failed";
+}
+
+/**
+ * Safe JSON parse with structured diagnostics.
+ *
+ * @param {any} value
+ * @param {{maxChars?: number}} [options]
+ * @returns {SafeJsonParseDetailedResult}
+ */
+export function safeJsonParseDetailed(value, options) {
+  const { maxChars } = options && typeof options === "object" ? options : {};
+  if (value === null || value === undefined) {
+    return { ok: false, value: null, code: SAFE_JSON_NULLISH };
+  }
+  if (typeof value === "object") {
+    return { ok: true, value, code: SAFE_JSON_OK };
+  }
+
+  const raw = typeof value === "string" ? value : String(value);
+  const s = raw.trim();
+  if (!s) {
+    return { ok: false, value: null, code: SAFE_JSON_EMPTY };
+  }
+
+  const limit = normalizeMaxChars(maxChars, DEFAULT_MAX_CHARS);
+  if (limit !== Infinity && s.length > limit) {
+    return {
+      ok: false,
+      value: null,
+      code: SAFE_JSON_OVERSIZED,
+      maxChars: limit,
+      observedChars: s.length,
+    };
+  }
+
+  try {
+    return {
+      ok: true,
+      value: JSON.parse(s, protoSafeReviver),
+      code: SAFE_JSON_OK,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      value: null,
+      code: SAFE_JSON_INVALID_JSON,
+      error: normalizeErrorMessage(err),
+      observedChars: s.length,
+    };
+  }
+}
 
 /**
  * Best-effort JSON.parse with a size guard.
@@ -18,26 +89,8 @@ const DEFAULT_MAX_CHARS = 1_000_000;
  * @returns {any|null}
  */
 export function safeJsonParse(value, options) {
-  const { maxChars } = options && typeof options === "object" ? options : {};
-  if (value === null || value === undefined) return null;
-  if (typeof value === "object") return value;
-  const raw = typeof value === "string" ? value : String(value);
-  const s = raw.trim();
-  if (!s) return null;
-
-  const limit = normalizeMaxChars(maxChars, DEFAULT_MAX_CHARS);
-  if (limit !== Infinity && s.length > limit) return null;
-
-  try {
-    return JSON.parse(s, (key, parsedValue) => {
-      if (key === "__proto__" || key === "constructor" || key === "prototype") {
-        return undefined;
-      }
-      return parsedValue;
-    });
-  } catch {
-    return null;
-  }
+  const parsed = safeJsonParseDetailed(value, options);
+  return parsed.ok ? parsed.value : null;
 }
 
 /**
@@ -52,4 +105,4 @@ export function protoSafeReviver(key, value) {
   return value;
 }
 
-export default { safeJsonParse, protoSafeReviver };
+export default { safeJsonParse, safeJsonParseDetailed, protoSafeReviver };

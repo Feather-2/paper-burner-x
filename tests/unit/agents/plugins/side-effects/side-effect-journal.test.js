@@ -1061,3 +1061,31 @@ for (const [exportName, exported] of Object.entries(sideEffectJournalModule)) {
     });
   });
 }
+
+describe("SideEffectJournal observability", () => {
+  it("tracks WAL fallback and oversized entry counters", async () => {
+    const { SideEffectJournal } = sideEffectJournalModule;
+    const vfs = createMemoryVfs();
+    delete vfs.appendText; // force append->rewrite fallback path
+
+    const journal = new SideEffectJournal({
+      runId: "obs-run",
+      walDir: "wal",
+      vfs,
+      logger: createLogger(),
+      autoPersist: false,
+    });
+
+    journal.record({
+      kind: "vfs_checkpoint",
+      reversible: true,
+      checkpoint: { artifactId: "ckpt-1" },
+      meta: { huge: "x".repeat(MAX_WAL_LINE_SIZE + 4096) },
+    });
+    await journal.persist();
+
+    const stats = journal.getPersistenceStats();
+    expect(stats.appendFallbackCount).toBeGreaterThanOrEqual(1);
+    expect(stats.oversizedEntryTrimmedCount + stats.oversizedEntrySkippedCount).toBeGreaterThanOrEqual(1);
+  });
+});

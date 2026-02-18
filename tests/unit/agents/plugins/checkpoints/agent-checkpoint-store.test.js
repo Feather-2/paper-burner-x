@@ -286,6 +286,9 @@ describe("AgentCheckpointStore", () => {
       const list = await store.listCheckpoints();
 
       expect(list).toEqual([]);
+      expect(loggerMock.warn).toHaveBeenCalledWith(
+        expect.stringContaining("index parse failed: oversized payload")
+      );
     });
 
     it("logs warning for read errors", async () => {
@@ -556,7 +559,7 @@ describe("AgentCheckpointStore", () => {
 
       const result = await store.loadCheckpoint({ checkpointId: "ckpt_big" });
       expect(result).toBeNull();
-      expect(customLogger.warn).toHaveBeenCalledWith(expect.stringContaining("Invalid checkpoint schema"));
+      expect(customLogger.warn).toHaveBeenCalledWith(expect.stringContaining("parse failed: oversized payload"));
     });
   });
 });

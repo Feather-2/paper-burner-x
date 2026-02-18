@@ -393,6 +393,36 @@ describe('DependencyManager', () => {
     expect(resultB.cached).toBe(true);
   });
 
+  it('cacheWheel deduplicates in-flight requests for the same wheel', async () => {
+    const { DependencyManager } = await loadModule();
+    const vfs = makeVfs({
+      mkdir: vi.fn().mockResolvedValue(undefined),
+      writeFile: vi.fn().mockResolvedValue(undefined),
+    });
+    const manager = new DependencyManager({ vfs });
+
+    let resolveFetch;
+    globalThis.fetch = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+
+    const wheel = { url: 'https://files.pythonhosted.org/a.whl' };
+    const p1 = manager.cacheWheel(wheel);
+    const p2 = manager.cacheWheel(wheel);
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    resolveFetch(makeResponse({ ok: true, data: toBytes('same') }));
+
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(r1.cached).toBe(true);
+    expect(r2.cached).toBe(true);
+    expect(vfs.writeFile).toHaveBeenCalledTimes(1);
+    expect(manager.getOperationalStats().inFlightLoads).toBe(0);
+  });
+
   it('generateLoadScript builds script with cached wheels and filters invalid entries', async () => {
     const { DependencyManager } = await loadModule();
     const manager = new DependencyManager();
@@ -539,5 +569,26 @@ describe('DependencyManager', () => {
     vfs.list.mockRejectedValueOnce(new Error('fail'));
     const fallback = await manager.getCacheStats();
     expect(fallback).toEqual({ available: false, totalSize: 0, fileCount: 0 });
+  });
+
+  it('tracks fallback and cleanup observability metrics', async () => {
+    const { DependencyManager } = await loadModule();
+    const vfs = makeVfs({
+      mkdir: vi.fn().mockResolvedValue(undefined),
+      writeFile: vi.fn().mockRejectedValue(new Error('disk-full')),
+      list: vi.fn().mockResolvedValue([{ kind: 'file', name: 'a.whl' }]),
+      stat: vi.fn().mockResolvedValue({ size: 10, mtimeMs: 1 }),
+      deleteFile: vi.fn().mockResolvedValue(undefined),
+    });
+    const manager = new DependencyManager({ vfs });
+    globalThis.fetch = vi.fn().mockResolvedValue(makeResponse({ ok: true, data: toBytes('bytes') }));
+
+    await manager.cacheWheel({ url: 'https://files.pythonhosted.org/a.whl' });
+    await manager.cleanupCache(0);
+
+    const stats = manager.getOperationalStats();
+    expect(stats.cacheFallbackCount).toBeGreaterThanOrEqual(1);
+    expect(stats.lastCleanup.limitBytes).toBe(0);
+    expect(stats.lastCleanup.scannedFiles).toBe(1);
   });
 });

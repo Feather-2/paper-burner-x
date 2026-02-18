@@ -28,6 +28,7 @@ const DEFAULT_BASE_DELAY_MS = 1000;
 const DEFAULT_MAX_DELAY_MS = 30000;
 const DEFAULT_JITTER_FACTOR = 0.3;
 const DEFAULT_GLOBAL_BUDGET_PER_MINUTE = 100;
+const DEFAULT_GLOBAL_BUDGET_SCOPE = "__shared__";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Retry Errors
@@ -80,47 +81,80 @@ export function isRetryableError(error) {
 // Global Budget Tracker (shared across all instances)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** @type {number[]} */
-let _globalRetryTimestamps = [];
+/** @type {Map<string, number[]>} */
+let _globalRetryTimestamps = new Map();
+
+function normalizeBudgetScope(scope) {
+  const s = typeof scope === "string" ? scope.trim() : "";
+  return s || DEFAULT_GLOBAL_BUDGET_SCOPE;
+}
+
+function normalizeNumberOption(value, fallback, { min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_INFINITY } = {}) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function pruneGlobalScope(scope, now = Date.now()) {
+  const normalizedScope = normalizeBudgetScope(scope);
+  const minuteAgo = now - 60000;
+  const list = _globalRetryTimestamps.get(normalizedScope) || [];
+  const filtered = list.filter((t) => t > minuteAgo);
+  if (filtered.length > 0) _globalRetryTimestamps.set(normalizedScope, filtered);
+  else _globalRetryTimestamps.delete(normalizedScope);
+  return filtered;
+}
 
 /**
  * Get global retry stats
- * @returns {{ retriesLastMinute: number, budgetRemaining: number }}
+ * @param {string} [scope]
+ * @param {number} [budgetPerMinute]
+ * @returns {{ retriesLastMinute: number, budgetRemaining: number, scope: string }}
  */
-export function getGlobalRetryStats() {
-  const now = Date.now();
-  const minuteAgo = now - 60000;
-  _globalRetryTimestamps = _globalRetryTimestamps.filter((t) => t > minuteAgo);
+export function getGlobalRetryStats(scope = DEFAULT_GLOBAL_BUDGET_SCOPE, budgetPerMinute = DEFAULT_GLOBAL_BUDGET_PER_MINUTE) {
+  const normalizedScope = normalizeBudgetScope(scope);
+  const timestamps = pruneGlobalScope(normalizedScope);
+  const normalizedBudget = normalizeNumberOption(budgetPerMinute, DEFAULT_GLOBAL_BUDGET_PER_MINUTE, { min: 0 });
   return {
-    retriesLastMinute: _globalRetryTimestamps.length,
-    budgetRemaining: Math.max(0, DEFAULT_GLOBAL_BUDGET_PER_MINUTE - _globalRetryTimestamps.length),
+    retriesLastMinute: timestamps.length,
+    budgetRemaining: Math.max(0, normalizedBudget - timestamps.length),
+    scope: normalizedScope,
   };
 }
 
 /**
  * Check if global budget allows retry
  * @param {number} [budgetPerMinute]
+ * @param {string} [scope]
  * @returns {boolean}
  */
-function canRetryGlobal(budgetPerMinute = DEFAULT_GLOBAL_BUDGET_PER_MINUTE) {
-  const now = Date.now();
-  const minuteAgo = now - 60000;
-  _globalRetryTimestamps = _globalRetryTimestamps.filter((t) => t > minuteAgo);
-  return _globalRetryTimestamps.length < budgetPerMinute;
+function canRetryGlobal(budgetPerMinute = DEFAULT_GLOBAL_BUDGET_PER_MINUTE, scope = DEFAULT_GLOBAL_BUDGET_SCOPE) {
+  const normalizedBudget = normalizeNumberOption(budgetPerMinute, DEFAULT_GLOBAL_BUDGET_PER_MINUTE, { min: 0 });
+  const timestamps = pruneGlobalScope(scope);
+  return timestamps.length < normalizedBudget;
 }
 
 /**
  * Record a global retry
+ * @param {string} [scope]
  */
-function recordRetryGlobal() {
-  _globalRetryTimestamps.push(Date.now());
+function recordRetryGlobal(scope = DEFAULT_GLOBAL_BUDGET_SCOPE) {
+  const normalizedScope = normalizeBudgetScope(scope);
+  const list = pruneGlobalScope(normalizedScope);
+  list.push(Date.now());
+  _globalRetryTimestamps.set(normalizedScope, list);
 }
 
 /**
  * Reset global retry stats (for testing)
+ * @param {string} [scope]
  */
-export function resetGlobalRetryStats() {
-  _globalRetryTimestamps = [];
+export function resetGlobalRetryStats(scope) {
+  if (scope !== undefined) {
+    _globalRetryTimestamps.delete(normalizeBudgetScope(scope));
+    return;
+  }
+  _globalRetryTimestamps = new Map();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -137,6 +171,8 @@ export class RetryStrategy {
    * @param {number} [options.globalBudgetPerMinute=100]
    * @param {function} [options.isRetryable] - Custom retry condition
    * @param {boolean} [options.useGlobalBudget=true] - Use shared global budget
+   * @param {string} [options.budgetScope="__shared__"] - Global budget namespace
+   * @param {() => number} [options.random] - RNG for jitter
    */
   constructor({
     maxRetries = DEFAULT_MAX_RETRIES,
@@ -146,14 +182,20 @@ export class RetryStrategy {
     globalBudgetPerMinute = DEFAULT_GLOBAL_BUDGET_PER_MINUTE,
     isRetryable,
     useGlobalBudget = true,
+    budgetScope = DEFAULT_GLOBAL_BUDGET_SCOPE,
+    random,
   } = {}) {
-    this._maxRetries = maxRetries;
-    this._baseDelayMs = baseDelayMs;
-    this._maxDelayMs = maxDelayMs;
-    this._jitterFactor = jitterFactor;
-    this._globalBudgetPerMinute = globalBudgetPerMinute;
+    this._maxRetries = Math.floor(normalizeNumberOption(maxRetries, DEFAULT_MAX_RETRIES, { min: 0 }));
+    this._baseDelayMs = normalizeNumberOption(baseDelayMs, DEFAULT_BASE_DELAY_MS, { min: 0 });
+    this._maxDelayMs = normalizeNumberOption(maxDelayMs, DEFAULT_MAX_DELAY_MS, { min: 0 });
+    this._jitterFactor = normalizeNumberOption(jitterFactor, DEFAULT_JITTER_FACTOR, { min: 0 });
+    this._globalBudgetPerMinute = Math.floor(
+      normalizeNumberOption(globalBudgetPerMinute, DEFAULT_GLOBAL_BUDGET_PER_MINUTE, { min: 0 })
+    );
     this._isRetryable = typeof isRetryable === "function" ? isRetryable : isRetryableError;
     this._useGlobalBudget = useGlobalBudget;
+    this._budgetScope = normalizeBudgetScope(budgetScope);
+    this._random = typeof random === "function" ? random : null;
 
     this._retryTimestamps = []; // timestamps of recent retries (instance-local)
   }
@@ -163,7 +205,7 @@ export class RetryStrategy {
    */
   get stats() {
     if (this._useGlobalBudget) {
-      const global = getGlobalRetryStats();
+      const global = getGlobalRetryStats(this._budgetScope, this._globalBudgetPerMinute);
       return {
         retriesLastMinute: global.retriesLastMinute,
         budgetPerMinute: this._globalBudgetPerMinute,
@@ -195,7 +237,9 @@ export class RetryStrategy {
     const cappedDelay = Math.min(exponentialDelay, this._maxDelayMs);
 
     // Add jitter: delay * (1 ± jitterFactor)
-    const jitter = cappedDelay * this._jitterFactor * (Math.random() * 2 - 1);
+    const randomSource = typeof this._random === "function" ? this._random : Math.random;
+    const randomValue = normalizeNumberOption(randomSource(), 0.5, { min: 0, max: 1 });
+    const jitter = cappedDelay * this._jitterFactor * (randomValue * 2 - 1);
 
     return Math.max(0, Math.round(cappedDelay + jitter));
   }
@@ -206,7 +250,7 @@ export class RetryStrategy {
    */
   canRetry() {
     if (this._useGlobalBudget) {
-      return canRetryGlobal(this._globalBudgetPerMinute);
+      return canRetryGlobal(this._globalBudgetPerMinute, this._budgetScope);
     }
     // Instance-local budget (legacy behavior)
     const now = Date.now();
@@ -220,7 +264,7 @@ export class RetryStrategy {
    */
   recordRetry() {
     if (this._useGlobalBudget) {
-      recordRetryGlobal();
+      recordRetryGlobal(this._budgetScope);
     } else {
       this._retryTimestamps.push(Date.now());
     }

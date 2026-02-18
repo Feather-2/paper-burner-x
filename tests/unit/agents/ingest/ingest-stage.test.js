@@ -58,12 +58,32 @@ const sharedMocks = vi.hoisted(() => {
         return '';
     });
 
+    const mergeSignals = (a, b) => {
+        const signals = [a, b].filter(Boolean);
+        if (signals.length === 0) return null;
+        if (signals.length === 1) return signals[0];
+        if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
+            return AbortSignal.any(signals);
+        }
+        const controller = new AbortController();
+        const abort = () => controller.abort();
+        for (const s of signals) {
+            if (s.aborted) {
+                controller.abort();
+                return controller.signal;
+            }
+            s.addEventListener?.('abort', abort, { once: true });
+        }
+        return controller.signal;
+    };
+
     return {
         isPlainObject,
         toNonEmptyString,
         normalizeMaxBytes,
         createResponseTooLargeError,
-        readTextWithLimit
+        readTextWithLimit,
+        mergeSignals
     };
 });
 
@@ -226,7 +246,8 @@ vi.mock('../../../../js/agents/shared/index.js', () => ({
     toNonEmptyString: sharedMocks.toNonEmptyString,
     normalizeMaxBytes: sharedMocks.normalizeMaxBytes,
     createResponseTooLargeError: sharedMocks.createResponseTooLargeError,
-    readTextWithLimit: sharedMocks.readTextWithLimit
+    readTextWithLimit: sharedMocks.readTextWithLimit,
+    mergeSignals: sharedMocks.mergeSignals
 }));
 
 import { INGEST_RESULT_ARTIFACT_TYPE, IngestStage } from '../../../../js/agents/ingest/ingest-stage.js';
@@ -252,7 +273,9 @@ const buildFingerprint = ({ files = [], urls = [], historyIds = [], rawTexts = [
         const name = sharedMocks.toNonEmptyString(f?.name) || sharedMocks.toNonEmptyString(f?.filename) || 'file';
         const type = sharedMocks.toNonEmptyString(f?.type) || sharedMocks.toNonEmptyString(f?.mimeType) || '';
         const size = Number.isFinite(f?.size) ? f.size : null;
-        return { name, type, size };
+        const lastModified = Number.isFinite(f?.lastModified) ? f.lastModified : null;
+        const contentSignature = sharedMocks.toNonEmptyString(f?.contentSignature) || sharedMocks.toNonEmptyString(f?.fingerprint) || '';
+        return { name, type, size, lastModified, contentSignature };
     });
 
     const rawMeta = (Array.isArray(rawTexts) ? rawTexts : []).map((t) => {
@@ -276,10 +299,16 @@ const buildFingerprint = ({ files = [], urls = [], historyIds = [], rawTexts = [
                 .map((f) => ({
                     name: sharedMocks.toNonEmptyString(f?.name) || '',
                     type: sharedMocks.toNonEmptyString(f?.type) || '',
-                    size: Number.isFinite(f?.size) ? f.size : null
+                    size: Number.isFinite(f?.size) ? f.size : null,
+                    lastModified: Number.isFinite(f?.lastModified) ? f.lastModified : null,
+                    contentSignature: sharedMocks.toNonEmptyString(f?.contentSignature) || ''
                 }))
                 .filter((f) => f.name)
-                .sort((a, b) => `${a.name}|${a.size ?? ''}|${a.type}`.localeCompare(`${b.name}|${b.size ?? ''}|${b.type}`)),
+                .sort((a, b) =>
+                    `${a.name}|${a.size ?? ''}|${a.type}|${a.lastModified ?? ''}|${a.contentSignature}`.localeCompare(
+                        `${b.name}|${b.size ?? ''}|${b.type}|${b.lastModified ?? ''}|${b.contentSignature}`
+                    )
+                ),
             historyIds: historyList.map((id) => sharedMocks.toNonEmptyString(id)).filter(Boolean).sort(),
             rawTexts: rawList
                 .map((r) => ({
@@ -675,6 +704,54 @@ describe('IngestStage', () => {
         expect(output.assets).toEqual(cachedArtifact.output.assets);
         expect(runStore.getArtifact).toHaveBeenCalled();
         expect(runStore.saveArtifact).toHaveBeenCalled();
+    });
+
+    it('does not reuse cached artifact when files keep name/size but content changes', async () => {
+        const stage = new IngestStage();
+        const makeFile = (content) => ({
+            name: 'same.txt',
+            type: 'text/plain',
+            size: content.length,
+            arrayBuffer: async () => new TextEncoder().encode(content).buffer
+        });
+
+        const writerStore = {
+            getArtifact: vi.fn(async () => null),
+            saveArtifact: vi.fn(async () => true)
+        };
+
+        await stage.execute({ runId: 'run-files' }, { files: [makeFile('AAAA')] }, { runStore: writerStore });
+        const cachedArtifact = writerStore.saveArtifact.mock.calls.at(-1)?.[2];
+        expect(cachedArtifact?.kind).toBe('ingest_result');
+
+        adapterMocks.markdown.parse.mockClear();
+
+        const runStore = {
+            getArtifact: vi.fn(async () => JSON.stringify(cachedArtifact)),
+            saveArtifact: vi.fn(async () => true)
+        };
+        const stage2 = new IngestStage();
+        await stage2.execute({ runId: 'run-files' }, { files: [makeFile('BBBB')] }, { runStore });
+
+        expect(adapterMocks.markdown.parse).toHaveBeenCalledTimes(1);
+    });
+
+    it('supports strict archive checkpoint mode and surfaces archive save errors', async () => {
+        const archive = {
+            save: vi.fn(async () => {
+                throw new Error('archive unavailable');
+            })
+        };
+        const stage = new IngestStage({ archive, runId: 'ingest-archive' });
+
+        await expect(
+            stage.execute(
+                { runId: 'run-archive' },
+                { input: { rawTexts: ['doc'] }, config: { strictArchiveCheckpoint: true } },
+                {}
+            )
+        ).rejects.toThrow('archive unavailable');
+        expect(archive.save).toHaveBeenCalled();
     });
 
     it('adds understanding results to assets when enabled', async () => {

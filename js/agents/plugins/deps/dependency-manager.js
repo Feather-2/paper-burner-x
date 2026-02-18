@@ -108,6 +108,15 @@ export class DependencyManager {
     this.maxCacheBytes = options.maxCacheBytes || 500 * 1024 * 1024; // 500MB
     this._loaded = new Set();
     this._loading = new Map();
+    this._cacheFallbackCount = 0;
+    this._lastCleanupMetrics = {
+      scannedFiles: 0,
+      evictedFiles: 0,
+      durationMs: 0,
+      bytesBefore: 0,
+      bytesAfter: 0,
+      limitBytes: this.maxCacheBytes,
+    };
   }
 
   /**
@@ -195,6 +204,26 @@ export class DependencyManager {
       return wheel; // 无 VFS，直接返回原始 URL
     }
 
+    const key = this._wheelLoadingKey(wheel);
+    if (this._loading.has(key)) {
+      return await this._loading.get(key);
+    }
+
+    const task = this._cacheWheelNow(wheel).finally(() => {
+      this._loading.delete(key);
+    });
+    this._loading.set(key, task);
+    return await task;
+  }
+
+  /**
+   * @private
+   * @param {WheelSpec} wheel
+   * @returns {Promise<WheelSpec>}
+   */
+  async _cacheWheelNow(wheel) {
+    if (!this.vfs) return wheel;
+
     try {
       // 安全校验：仅允许 https 协议
       const urlObj = new URL(wheel.url);
@@ -250,9 +279,25 @@ export class DependencyManager {
         throw err;
       }
       // 其他错误 (网络、VFS 写入等) 记录警告并返回原始 URL
-      logger.warn(`Failed to cache wheel ${wheel.url}:`, { error: err.message });
+      this._cacheFallbackCount += 1;
+      logger.warn(`Failed to cache wheel ${wheel.url}, fallback to source URL`, {
+        error: err?.message || String(err),
+        fallback: "source_url",
+        fallbackCount: this._cacheFallbackCount,
+      });
       return wheel;
     }
+  }
+
+  /**
+   * @private
+   * @param {WheelSpec} wheel
+   * @returns {string}
+   */
+  _wheelLoadingKey(wheel) {
+    const url = typeof wheel?.url === "string" ? wheel.url : "";
+    const sha = typeof wheel?.sha256 === "string" ? wheel.sha256.toLowerCase() : "";
+    return `${url}#${sha}`;
   }
 
   /**
@@ -350,12 +395,18 @@ export class DependencyManager {
   async cleanupCache(maxBytes = this.maxCacheBytes) {
     if (!this.vfs) return;
 
+    const t0 = Date.now();
+    const limit = Number.isFinite(Number(maxBytes))
+      ? Math.max(0, Math.floor(Number(maxBytes)))
+      : this.maxCacheBytes;
+
     try {
       const entries = await this.vfs.list(this.cacheDir);
       if (!entries || entries.length === 0) return;
 
       let totalSize = 0;
       const files = [];
+      let evictedFiles = 0;
 
       for (const e of entries) {
         if (e.kind !== "file") continue;
@@ -380,24 +431,68 @@ export class DependencyManager {
         }
       }
 
-      if (totalSize <= maxBytes) return;
+      const bytesBefore = totalSize;
+      if (totalSize <= limit) {
+        this._lastCleanupMetrics = {
+          scannedFiles: files.length,
+          evictedFiles: 0,
+          durationMs: Date.now() - t0,
+          bytesBefore,
+          bytesAfter: totalSize,
+          limitBytes: limit,
+        };
+        return;
+      }
 
       // LRU: 按 mtime 排序，删除最旧的
       files.sort((a, b) => a.mtimeMs - b.mtimeMs);
 
-      while (totalSize > maxBytes && files.length > 0) {
-        const oldest = files.shift();
+      for (let i = 0; i < files.length && totalSize > limit; i += 1) {
+        const oldest = files[i];
         try {
           await this.vfs.deleteFile(oldest.path);
           totalSize -= oldest.size;
+          evictedFiles += 1;
           logger.info(`Evicted cached wheel: ${oldest.name}`);
         } catch {
           // 忽略删除失败
         }
       }
+
+      this._lastCleanupMetrics = {
+        scannedFiles: files.length,
+        evictedFiles,
+        durationMs: Date.now() - t0,
+        bytesBefore,
+        bytesAfter: Math.max(0, totalSize),
+        limitBytes: limit,
+      };
     } catch (err) {
       logger.warn(`Cache cleanup failed:`, { error: err.message });
     }
+  }
+
+  /**
+   * Operational metrics for observability.
+   * @returns {{
+   *   inFlightLoads: number,
+   *   cacheFallbackCount: number,
+   *   lastCleanup: {
+   *     scannedFiles: number,
+   *     evictedFiles: number,
+   *     durationMs: number,
+   *     bytesBefore: number,
+   *     bytesAfter: number,
+   *     limitBytes: number,
+   *   }
+   * }}
+   */
+  getOperationalStats() {
+    return {
+      inFlightLoads: this._loading.size,
+      cacheFallbackCount: this._cacheFallbackCount,
+      lastCleanup: { ...this._lastCleanupMetrics },
+    };
   }
 
   /**

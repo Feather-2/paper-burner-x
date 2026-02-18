@@ -45,9 +45,40 @@ const MAX_IMAGE_SIZE = 500 * 1024; // 500KB
 const MAX_JSON_RESPONSE_CHARS = 20000;
 const MAX_JSON_ITEMS = 25;
 const MAX_JSON_KEYS = 32;
+const MAX_JSON_CAPTURE_CHARS = 200;
 
 // 缓存的提示词
 let _batchAnalysisPrompt = null;
+
+const assetUnderstandingMetrics = {
+  oversizedJsonResponses: 0,
+  oversizedJsonCandidates: 0,
+  jsonParseFailures: 0,
+  compressionAttempts: 0,
+  compressionSuccess: 0,
+  compressionFallback: 0,
+  lastOversizedSample: "",
+};
+
+function rememberOversizedSample(text) {
+  const s = String(text || "").trim();
+  if (!s) return;
+  assetUnderstandingMetrics.lastOversizedSample = s.slice(0, MAX_JSON_CAPTURE_CHARS);
+}
+
+export function getAssetUnderstandingMetrics() {
+  return { ...assetUnderstandingMetrics };
+}
+
+export function resetAssetUnderstandingMetrics() {
+  assetUnderstandingMetrics.oversizedJsonResponses = 0;
+  assetUnderstandingMetrics.oversizedJsonCandidates = 0;
+  assetUnderstandingMetrics.jsonParseFailures = 0;
+  assetUnderstandingMetrics.compressionAttempts = 0;
+  assetUnderstandingMetrics.compressionSuccess = 0;
+  assetUnderstandingMetrics.compressionFallback = 0;
+  assetUnderstandingMetrics.lastOversizedSample = "";
+}
 
 function sanitizeErrorMessage(err, { maxChars = 200 } = {}) {
   const raw = err instanceof Error ? err.message : String(err ?? "");
@@ -94,10 +125,15 @@ function isPlainRecord(value) {
 
 function safeParseJson(payload) {
   if (typeof payload !== "string") return null;
-  if (payload.length > MAX_JSON_RESPONSE_CHARS) return null;
+  if (payload.length > MAX_JSON_RESPONSE_CHARS) {
+    assetUnderstandingMetrics.oversizedJsonCandidates += 1;
+    rememberOversizedSample(payload);
+    return null;
+  }
   try {
     return JSON.parse(payload, protoSafeReviver);
   } catch {
+    assetUnderstandingMetrics.jsonParseFailures += 1;
     return null;
   }
 }
@@ -105,7 +141,11 @@ function safeParseJson(payload) {
 function parseJsonResponse(text) {
   const s = String(text || "").trim();
   if (!s) return null;
-  if (s.length > MAX_JSON_RESPONSE_CHARS * 2) return null;
+  if (s.length > MAX_JSON_RESPONSE_CHARS * 2) {
+    assetUnderstandingMetrics.oversizedJsonResponses += 1;
+    rememberOversizedSample(s);
+    return null;
+  }
   // Try array first
   const arrMatch = s.match(/\[[\s\S]*\]/);
   if (arrMatch) {
@@ -126,17 +166,100 @@ function parseJsonResponse(text) {
 }
 
 /**
- * 压缩图片数据到指定大小
+ * 估算 Data URL 大小（字节）
+ * @param {string} dataUrl
+ * @returns {number}
  */
-function compressImageData(dataUrl, maxSize = MAX_IMAGE_SIZE) {
-  if (!dataUrl || typeof dataUrl !== 'string') return dataUrl;
+function estimateDataUrlBytes(dataUrl) {
+  if (typeof dataUrl !== "string" || !dataUrl) return 0;
+  const idx = dataUrl.indexOf(",");
+  if (idx === -1) return Math.floor(dataUrl.length * 0.75);
+  const meta = dataUrl.slice(0, idx);
+  const body = dataUrl.slice(idx + 1);
+  if (meta.includes(";base64")) {
+    return Math.floor(body.length * 0.75);
+  }
+  return body.length;
+}
 
-  // 估算当前大小 (base64 约为原始的 4/3)
-  const currentSize = dataUrl.length * 0.75;
+/**
+ * Browser-only best-effort compression via Canvas.
+ * @param {string} dataUrl
+ * @param {number} maxSize
+ * @returns {Promise<string|null>}
+ */
+async function compressViaCanvas(dataUrl, maxSize) {
+  if (typeof document === "undefined" || typeof Image === "undefined") return null;
+
+  const image = await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("image_load_failed"));
+    img.src = dataUrl;
+  });
+
+  let width = image.naturalWidth || image.width || 0;
+  let height = image.naturalHeight || image.height || 0;
+  if (!width || !height) return null;
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  let quality = 0.9;
+  let scale = 1;
+  let best = null;
+  let bestSize = Number.POSITIVE_INFINITY;
+
+  for (let i = 0; i < 8; i += 1) {
+    const w = Math.max(1, Math.floor(width * scale));
+    const h = Math.max(1, Math.floor(height * scale));
+    canvas.width = w;
+    canvas.height = h;
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(image, 0, 0, w, h);
+
+    const encoded = canvas.toDataURL("image/jpeg", quality);
+    const size = estimateDataUrlBytes(encoded);
+    if (size < bestSize) {
+      best = encoded;
+      bestSize = size;
+    }
+    if (size <= maxSize) return encoded;
+
+    if (quality > 0.45) {
+      quality -= 0.15;
+    } else {
+      scale *= 0.85;
+    }
+  }
+
+  return best;
+}
+
+/**
+ * 压缩图片数据到指定大小（最佳努力）。
+ */
+async function compressImageData(dataUrl, maxSize = MAX_IMAGE_SIZE) {
+  if (!dataUrl || typeof dataUrl !== "string") return dataUrl;
+  const currentSize = estimateDataUrlBytes(dataUrl);
   if (currentSize <= maxSize) return dataUrl;
 
-  // 对于超大图片，返回原数据让调用方处理
-  // 实际压缩需要 canvas，这里简单返回原数据
+  assetUnderstandingMetrics.compressionAttempts += 1;
+  try {
+    const compressed = await compressViaCanvas(dataUrl, maxSize);
+    if (typeof compressed === "string" && compressed) {
+      const compressedSize = estimateDataUrlBytes(compressed);
+      if (compressedSize < currentSize) {
+        assetUnderstandingMetrics.compressionSuccess += 1;
+        return compressed;
+      }
+    }
+  } catch {
+    // fall through to fallback path
+  }
+
+  assetUnderstandingMetrics.compressionFallback += 1;
   return dataUrl;
 }
 
@@ -146,7 +269,7 @@ function compressImageData(dataUrl, maxSize = MAX_IMAGE_SIZE) {
 async function analyzeBatch(assets, callVision) {
   if (!assets.length) return [];
 
-  const images = assets.map(a => compressImageData(a.data, MAX_IMAGE_SIZE));
+  const images = await Promise.all(assets.map((a) => compressImageData(a.data, MAX_IMAGE_SIZE)));
 
   try {
     const result = await callVision(BATCH_ANALYSIS_PROMPT, images);

@@ -12,7 +12,7 @@ import { VideoAdapter } from "./adapters/video.js";
 import { CodeAdapter } from "./adapters/code.js";
 import { understandAssets as runAssetUnderstanding } from "./asset-understanding.js";
 import { normalizeText } from "../stages/textprep/normalize.js";
-import { isPlainObject, toNonEmptyString, protoSafeReviver} from "../shared/index.js";
+import { isPlainObject, toNonEmptyString, protoSafeReviver, mergeSignals } from "../shared/index.js";
 import { validateFetchUrl } from "../mcp/http-proxy.js";
 import { createResponseTooLargeError, normalizeMaxBytes, readTextWithLimit } from "../shared/index.js";
 
@@ -149,6 +149,36 @@ function normalizeIngestArtifact(data) {
   }
 }
 
+const MAX_FILE_FINGERPRINT_BYTES = 2 * 1024 * 1024; // 2MiB safety cap for resume fingerprint hashing
+
+function toHex(buffer) {
+  const arr = new Uint8Array(buffer);
+  let out = "";
+  for (const b of arr) out += b.toString(16).padStart(2, "0");
+  return out;
+}
+
+async function computeFileContentSignature(file) {
+  if (!file || typeof file !== "object") return "";
+  const explicit =
+    toNonEmptyString(file?.fingerprint) ||
+    toNonEmptyString(file?.contentFingerprint) ||
+    toNonEmptyString(file?.sha256);
+  if (explicit) return explicit;
+  if (typeof file.arrayBuffer !== "function") return "";
+  if (!globalThis.crypto?.subtle || typeof globalThis.crypto.subtle.digest !== "function") return "";
+  const size = Number.isFinite(file?.size) ? Number(file.size) : null;
+  if (size !== null && size > MAX_FILE_FINGERPRINT_BYTES) return "";
+  try {
+    const buffer = await file.arrayBuffer();
+    if (!(buffer instanceof ArrayBuffer) || buffer.byteLength === 0) return "";
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", buffer);
+    return `sha256:${toHex(digest)}`;
+  } catch {
+    return "";
+  }
+}
+
 function normalizeFingerprint(fp) {
   const src = fp && typeof fp === "object" && !Array.isArray(fp) ? fp : {};
   const files = Array.isArray(src.files) ? src.files : [];
@@ -161,9 +191,15 @@ function normalizeFingerprint(fp) {
         name: toNonEmptyString(f?.name) || "",
         type: toNonEmptyString(f?.type) || "",
         size: Number.isFinite(f?.size) ? f.size : null,
+        lastModified: Number.isFinite(f?.lastModified) ? f.lastModified : null,
+        contentSignature: toNonEmptyString(f?.contentSignature) || "",
       }))
       .filter((f) => f.name)
-      .sort((a, b) => `${a.name}|${a.size ?? ""}|${a.type}`.localeCompare(`${b.name}|${b.size ?? ""}|${b.type}`)),
+      .sort((a, b) =>
+        `${a.name}|${a.size ?? ""}|${a.type}|${a.lastModified ?? ""}|${a.contentSignature}`.localeCompare(
+          `${b.name}|${b.size ?? ""}|${b.type}|${b.lastModified ?? ""}|${b.contentSignature}`
+        )
+      ),
     historyIds: historyIds.map((id) => toNonEmptyString(id)).filter(Boolean).sort(),
     rawTexts: rawTexts
       .map((r) => ({
@@ -176,14 +212,21 @@ function normalizeFingerprint(fp) {
   };
 }
 
-function buildInputFingerprint({ files = [], urls = [], historyIds = [], rawTexts = [] } = {}) {
-  const fileMeta = (Array.isArray(files) ? files : []).map((f) => {
-    if (typeof f === "string") return { name: f, type: "", size: null };
+async function buildInputFingerprint({ files = [], urls = [], historyIds = [], rawTexts = [] } = {}) {
+  const fileMeta = [];
+  const list = Array.isArray(files) ? files : [];
+  for (const f of list) {
+    if (typeof f === "string") {
+      fileMeta.push({ name: f, type: "", size: null, lastModified: null, contentSignature: "" });
+      continue;
+    }
     const name = toNonEmptyString(f?.name) || toNonEmptyString(f?.filename) || "file";
     const type = toNonEmptyString(f?.type) || toNonEmptyString(f?.mimeType) || "";
     const size = Number.isFinite(f?.size) ? f.size : null;
-    return { name, type, size };
-  });
+    const lastModified = Number.isFinite(f?.lastModified) ? Number(f.lastModified) : null;
+    const contentSignature = await computeFileContentSignature(f);
+    fileMeta.push({ name, type, size, lastModified, contentSignature });
+  }
 
   const rawMeta = (Array.isArray(rawTexts) ? rawTexts : []).map((t) => {
     const text = typeof t === "string" ? t : String(t?.text || "");
@@ -212,7 +255,7 @@ function normalizeTimeoutMs(value) {
   return Math.floor(n);
 }
 
-function withTimeout(promise, timeoutMs, { signal, label } = {}) {
+function withTimeout(promise, timeoutMs, { signal, label, onTimeout, onAbort: onAbortCallback, abortController } = {}) {
   const ms = normalizeTimeoutMs(timeoutMs);
   if (!ms) return Promise.resolve(promise);
 
@@ -224,7 +267,7 @@ function withTimeout(promise, timeoutMs, { signal, label } = {}) {
       if (timer) clearTimeout(timer);
       timer = null;
       if (signal && typeof signal.removeEventListener === "function") {
-        signal.removeEventListener("abort", onAbort);
+        signal.removeEventListener("abort", handleAbort);
       }
     };
 
@@ -242,25 +285,82 @@ function withTimeout(promise, timeoutMs, { signal, label } = {}) {
       reject(err);
     };
 
-    const onAbort = () => {
-      const err = new Error("Run cancelled");
+    const handleAbort = () => {
+      const reason = signal?.reason;
+      const err = new Error(typeof reason === "string" ? reason : "Run cancelled");
       err.name = "AbortError";
+      try {
+        onAbortCallback?.(err);
+      } catch {
+        // ignore callback errors
+      }
       doneReject(err);
     };
 
     if (signal && typeof signal.addEventListener === "function") {
-      if (signal.aborted) return onAbort();
-      signal.addEventListener("abort", onAbort, { once: true });
+      if (signal.aborted) return handleAbort();
+      signal.addEventListener("abort", handleAbort, { once: true });
     }
 
     timer = setTimeout(() => {
       const err = new Error(`Timeout after ${ms}ms${label ? `: ${label}` : ""}`);
       err.name = "TimeoutError";
+      try {
+        onTimeout?.(err);
+      } catch {
+        // ignore callback errors
+      }
       doneReject(err);
+      if (abortController && typeof abortController.abort === "function") {
+        try {
+          abortController.abort(err);
+        } catch {
+          // ignore controller abort failures
+        }
+      }
     }, ms);
 
     Promise.resolve(promise).then(doneResolve, doneReject);
   });
+}
+
+function toAbortError(reason, fallbackMessage = "Run cancelled") {
+  const msg = typeof reason === "string" && reason.trim() ? reason : fallbackMessage;
+  const err = new Error(msg);
+  err.name = "AbortError";
+  return err;
+}
+
+function createPerDocStageApi(stageApi) {
+  const base = stageApi && typeof stageApi === "object" ? stageApi : {};
+  if (typeof AbortController !== "function") {
+    return {
+      stageApi: base,
+      signal: base?.signal || null,
+      abortController: null,
+    };
+  }
+
+  const timeoutAbortController = new AbortController();
+  const mergedSignal = mergeSignals(base?.signal || null, timeoutAbortController.signal) || timeoutAbortController.signal;
+  const docStageApi = {
+    ...base,
+    signal: mergedSignal,
+    checkCancelled: () => {
+      if (typeof base?.checkCancelled === "function") {
+        base.checkCancelled();
+      }
+      if (mergedSignal?.aborted) {
+        throw toAbortError(mergedSignal.reason);
+      }
+    },
+  };
+
+  return {
+    stageApi: docStageApi,
+    signal: mergedSignal,
+    abortController: timeoutAbortController,
+  };
 }
 
 function sourceFromParsed(parsed, assetIds) {
@@ -359,7 +459,7 @@ export class IngestStage {
       config?.maxUrlBytes ?? config?.maxUrlTextBytes ?? stageApi?.maxUrlBytes ?? stageApi?.maxUrlTextBytes,
       DEFAULT_MAX_URL_BYTES
     );
-    const inputFingerprint = buildInputFingerprint({ files, urls, historyIds, rawTexts });
+    const inputFingerprint = await buildInputFingerprint({ files, urls, historyIds, rawTexts });
 
     const assets = new AssetManager();
     const injectedAdapters = isPlainObject(config?.adapters) ? config.adapters : isPlainObject(stageApi?.adapters) ? stageApi.adapters : null;
@@ -390,6 +490,13 @@ export class IngestStage {
     let successDocs = 0;
     let failedDocs = 0;
     let persistQueue = Promise.resolve();
+    let archiveQueue = Promise.resolve();
+    let archiveStrictFailure = null;
+    const strictArchiveCheckpoint =
+      config?.archiveCheckpointMode === "strict" ||
+      config?.checkpointPersistMode === "strict" ||
+      config?.strictArchiveCheckpoint === true ||
+      stageApi?.strictArchiveCheckpoint === true;
 
     const persistResume = async ({ lastDoc } = {}) => {
       if (!persistEnabled) return null;
@@ -483,7 +590,7 @@ export class IngestStage {
         () => persistResume({ lastDoc })
       );
 
-      // Persist to Archive (async, non-blocking)
+      // Persist to Archive (queued; strict mode can escalate failures)
       if (this._archive) {
         const timestamp = Date.now();
         const checkpointId = `${this._runId}:doc:${key.replace(/[^a-zA-Z0-9_-]/g, '_')}:${timestamp}`;
@@ -500,19 +607,40 @@ export class IngestStage {
           },
         };
 
-        // Fire-and-forget: don't block document processing on persistence
-        this._archive.save(checkpointId, checkpointEntry).catch((err) => {
-          const logger = { warn: console.warn };
-          logger?.warn?.(`[ingest-stage] Failed to persist checkpoint: ${err.message}`);
-        });
+        archiveQueue = archiveQueue.then(
+          async () => {
+            try {
+              await this._archive.save(checkpointId, checkpointEntry);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              warnings.push(`archive checkpoint persist failed for ${origin}: ${msg}`);
+              const logger = { warn: console.warn };
+              logger?.warn?.(`[ingest-stage] Failed to persist checkpoint: ${msg}`);
+              if (strictArchiveCheckpoint && !archiveStrictFailure) archiveStrictFailure = err;
+            }
+          },
+          async () => {
+            // Preserve queue ordering even after prior failures.
+            try {
+              await this._archive.save(checkpointId, checkpointEntry);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              warnings.push(`archive checkpoint persist failed for ${origin}: ${msg}`);
+              const logger = { warn: console.warn };
+              logger?.warn?.(`[ingest-stage] Failed to persist checkpoint: ${msg}`);
+              if (strictArchiveCheckpoint && !archiveStrictFailure) archiveStrictFailure = err;
+            }
+          }
+        );
       }
 
-      return persistQueue;
+      return Promise.all([persistQueue, archiveQueue]);
     };
 
     // rawTexts (optionally concurrent)
     await runWithConcurrency(rawTexts, maxConcurrentDocs, async (item) => {
-      checkCancelled(stageApi);
+      const docStage = createPerDocStageApi(stageApi);
+      checkCancelled(docStage.stageApi);
       const origin = originKeyForRawText(item);
       if (shouldSkipOrigin(origin)) {
         emit?.("ingest:doc:skipped", { origin }, { status: "skipped" });
@@ -520,7 +648,11 @@ export class IngestStage {
       }
       emit?.("ingest:doc:started", { origin }, { status: "started" });
       try {
-        const parsed = await withTimeout(adapters.rawText.parse(item), docTimeoutMs, { signal: stageApi?.signal, label: origin });
+        const parsed = await withTimeout(adapters.rawText.parse(item, docStage.stageApi), docTimeoutMs, {
+          signal: docStage.signal,
+          label: origin,
+          abortController: docStage.abortController,
+        });
         const addedAssetIds = assets.addAssets(Array.isArray(parsed.assets) ? parsed.assets.map((a) => ({ ...a, docId: parsed.docId })) : []);
         const assetIds = Array.from(new Set(addedAssetIds));
         sources.push(sourceFromParsed(parsed, assetIds));
@@ -542,7 +674,8 @@ export class IngestStage {
 
     // historyIds (optionally concurrent)
     await runWithConcurrency(historyIds, maxConcurrentDocs, async (hid) => {
-      checkCancelled(stageApi);
+      const docStage = createPerDocStageApi(stageApi);
+      checkCancelled(docStage.stageApi);
       const origin = `history:${hid}`;
       if (shouldSkipOrigin(origin)) {
         emit?.("ingest:doc:skipped", { origin, historyId: hid }, { status: "skipped" });
@@ -550,7 +683,11 @@ export class IngestStage {
       }
       emit?.("ingest:doc:started", { origin, historyId: hid }, { status: "started" });
       try {
-        const parsed = await withTimeout(adapters.history.parse(hid), docTimeoutMs, { signal: stageApi?.signal, label: origin });
+        const parsed = await withTimeout(adapters.history.parse(hid, docStage.stageApi), docTimeoutMs, {
+          signal: docStage.signal,
+          label: origin,
+          abortController: docStage.abortController,
+        });
         const addedAssetIds = assets.addAssets(Array.isArray(parsed.assets) ? parsed.assets.map((a) => ({ ...a, docId: parsed.docId })) : []);
         const assetIds = Array.from(new Set(addedAssetIds));
         sources.push(sourceFromParsed(parsed, assetIds));
@@ -572,7 +709,8 @@ export class IngestStage {
 
     // files (optionally concurrent)
     await runWithConcurrency(files, maxConcurrentDocs, async (f) => {
-      checkCancelled(stageApi);
+      const docStage = createPerDocStageApi(stageApi);
+      checkCancelled(docStage.stageApi);
       const label = fileLabel(f);
       const ext = extOfName(label);
       const mimeType = mimeOfFile(f);
@@ -604,23 +742,27 @@ export class IngestStage {
 
       try {
         const parsePromise = isPdf
-          ? adapters.pdf.parse(f, stageApi)
+          ? adapters.pdf.parse(f, docStage.stageApi)
           : isDocx
-            ? adapters.docx.parse(f, stageApi)
+            ? adapters.docx.parse(f, docStage.stageApi)
             : isPptx
-              ? adapters.pptx.parse(f, stageApi)
+              ? adapters.pptx.parse(f, docStage.stageApi)
               : isHtml
-                ? adapters.html.parse(f, stageApi)
+                ? adapters.html.parse(f, docStage.stageApi)
                 : isEpub
-                  ? adapters.epub.parse(f, stageApi)
+                  ? adapters.epub.parse(f, docStage.stageApi)
                   : isVideo
-                    ? adapters.video.parse(f, stageApi)
+                    ? adapters.video.parse(f, docStage.stageApi)
                     : isAudio
-                      ? adapters.audio.parse(f, stageApi)
+                      ? adapters.audio.parse(f, docStage.stageApi)
                       : isCode
-                        ? adapters.code.parse(f, stageApi)
-                        : adapters.markdown.parse(f, stageApi);
-        const parsed = await withTimeout(parsePromise, docTimeoutMs, { signal: stageApi?.signal, label: origin });
+                        ? adapters.code.parse(f, docStage.stageApi)
+                        : adapters.markdown.parse(f, docStage.stageApi);
+        const parsed = await withTimeout(parsePromise, docTimeoutMs, {
+          signal: docStage.signal,
+          label: origin,
+          abortController: docStage.abortController,
+        });
         const addedAssetIds = assets.addAssets(Array.isArray(parsed.assets) ? parsed.assets.map((a) => ({ ...a, docId: parsed.docId })) : []);
         const assetIds = Array.from(new Set(addedAssetIds));
         sources.push(sourceFromParsed(parsed, assetIds));
@@ -655,7 +797,23 @@ export class IngestStage {
       return head.includes("<!doctype") || head.includes("<html") || head.includes("<head") || head.includes("<body");
     };
 
-    const fetchUrlText = async (targetUrl) => {
+    const normalizeFetchResult = ({
+      text,
+      title,
+      contentType,
+      fetchPath,
+      requestUrl,
+      finalUrl,
+    }) => ({
+      text,
+      title: toNonEmptyString(title) || toNonEmptyString(finalUrl) || requestUrl,
+      contentType: toNonEmptyString(contentType) || "",
+      fetchPath,
+      requestUrl,
+      finalUrl: toNonEmptyString(finalUrl) || requestUrl,
+    });
+
+    const fetchUrlText = async (targetUrl, { signal } = {}) => {
       targetUrl = validateFetchUrl(targetUrl, { allowPrivateNetwork });
 
       const enforceTextLimit = (text, label) => {
@@ -667,13 +825,31 @@ export class IngestStage {
       };
 
       if (urlFetcher) {
-        const out = await urlFetcher(targetUrl, { signal: stageApi?.signal });
-        if (typeof out === "string") return { text: enforceTextLimit(out, `URL fetcher response: ${targetUrl}`), title: targetUrl, contentType: "" };
+        const out = await urlFetcher(targetUrl, { signal });
+        if (typeof out === "string") {
+          return normalizeFetchResult({
+            text: enforceTextLimit(out, `URL fetcher response: ${targetUrl}`),
+            title: targetUrl,
+            contentType: "",
+            fetchPath: "urlFetcher",
+            requestUrl: targetUrl,
+            finalUrl: targetUrl,
+          });
+        }
         if (out && typeof out === "object") {
           const text = typeof out.text === "string" ? out.text : typeof out.content === "string" ? out.content : "";
           const title = typeof out.title === "string" ? out.title : targetUrl;
-          const contentType = typeof out.contentType === "string" ? out.contentType : "";
-          return { text: enforceTextLimit(text, `URL fetcher response: ${targetUrl}`), title, contentType };
+          const contentType =
+            typeof out.contentType === "string" ? out.contentType : typeof out.mimeType === "string" ? out.mimeType : "";
+          const finalUrl = toNonEmptyString(out.url) || targetUrl;
+          return normalizeFetchResult({
+            text: enforceTextLimit(text, `URL fetcher response: ${targetUrl}`),
+            title,
+            contentType,
+            fetchPath: "urlFetcher",
+            requestUrl: targetUrl,
+            finalUrl,
+          });
         }
         throw new Error("urlFetcher returned unsupported result");
       }
@@ -684,22 +860,37 @@ export class IngestStage {
         const text = typeof res.getText === "function" ? res.getText() : String(res?.content?.[0]?.text || "");
         const jsonPart = Array.isArray(res?.content) ? res.content.find((c) => c?.type === "json" && c?.data) : null;
         const title = jsonPart?.data?.title || jsonPart?.data?.metadata?.title || targetUrl;
-        const contentType = jsonPart?.data?.metadata?.contentType || "";
-        return { text: enforceTextLimit(text, `MCP fetch_content response: ${targetUrl}`), title, contentType };
+        const contentType = jsonPart?.data?.metadata?.contentType || jsonPart?.data?.mimeType || "";
+        const finalUrl = jsonPart?.data?.url || jsonPart?.data?.metadata?.url || targetUrl;
+        return normalizeFetchResult({
+          text: enforceTextLimit(text, `MCP fetch_content response: ${targetUrl}`),
+          title,
+          contentType,
+          fetchPath: "mcp",
+          requestUrl: targetUrl,
+          finalUrl,
+        });
       }
 
       if (allowDirectUrlFetch && typeof fetch === "function") {
         const safeUrl = validateFetchUrl(targetUrl, { allowPrivateNetwork });
-        const resp = await fetch(safeUrl, { signal: stageApi?.signal });
+        const resp = await fetch(safeUrl, { signal });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const contentType = resp.headers?.get?.("content-type") || "";
         const text = await readTextWithLimit(resp, {
           maxBytes: maxUrlBytes,
-          signal: stageApi?.signal,
+          signal,
           context: `URL fetch response: ${safeUrl}`,
         });
         if (typeof text !== "string" || !text) throw new Error("empty response body");
-        return { text, title: safeUrl, contentType };
+        return normalizeFetchResult({
+          text,
+          title: safeUrl,
+          contentType,
+          fetchPath: "direct",
+          requestUrl: targetUrl,
+          finalUrl: toNonEmptyString(resp.url) || safeUrl,
+        });
       }
 
       throw new Error("URL ingest not supported");
@@ -707,7 +898,8 @@ export class IngestStage {
 
     // urls - optional support via urlFetcher / MCP / direct fetch (best-effort, may fail on CORS)
     await runWithConcurrency(urls, maxConcurrentDocs, async (url) => {
-      checkCancelled(stageApi);
+      const docStage = createPerDocStageApi(stageApi);
+      checkCancelled(docStage.stageApi);
       const targetUrl = toNonEmptyString(url);
       const origin = `url:${targetUrl || url}`;
       if (shouldSkipOrigin(origin)) {
@@ -726,7 +918,11 @@ export class IngestStage {
       }
 
       try {
-        const fetched = await withTimeout(fetchUrlText(targetUrl), docTimeoutMs, { signal: stageApi?.signal, label: origin });
+        const fetched = await withTimeout(fetchUrlText(targetUrl, { signal: docStage.signal }), docTimeoutMs, {
+          signal: docStage.signal,
+          label: origin,
+          abortController: docStage.abortController,
+        });
         let parsed = null;
 
         if (looksLikeHtml(fetched.text, fetched.contentType)) {
@@ -739,7 +935,7 @@ export class IngestStage {
                   return fetched.text;
                 },
               },
-              stageApi
+              docStage.stageApi
             );
           } catch {
             parsed = null;
@@ -747,7 +943,7 @@ export class IngestStage {
         }
 
         if (!parsed) {
-          parsed = await adapters.rawText.parse({ text: fetched.text, title: fetched.title || targetUrl });
+          parsed = await adapters.rawText.parse({ text: fetched.text, title: fetched.title || targetUrl }, docStage.stageApi);
         }
 
         const addedAssetIds = assets.addAssets(Array.isArray(parsed.assets) ? parsed.assets.map((a) => ({ ...a, docId: parsed.docId })) : []);
@@ -836,8 +1032,26 @@ export class IngestStage {
     );
     try {
       await persistQueue;
-    } catch {
-      // ignore
+    } catch (error) {
+      logger.warn("ingest:persistFinalFlushFailed", {
+        runId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    try {
+      await archiveQueue;
+    } catch (error) {
+      logger.warn("ingest:archiveCheckpointFlushFailed", {
+        runId,
+        error: error instanceof Error ? error.message : String(error),
+        strict: strictArchiveCheckpoint,
+      });
+      if (strictArchiveCheckpoint) throw error;
+    }
+
+    if (strictArchiveCheckpoint && archiveStrictFailure) {
+      throw archiveStrictFailure;
     }
     emit?.("ingest:completed", { sourceCount: sources.length, assetCount: output.assets.length, durationMs: output.metrics.durationMs }, { status: "completed" });
     return output;

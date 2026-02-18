@@ -181,7 +181,7 @@ describe("understandAsset", () => {
   });
 
   it("handles oversized non-JSON responses and huge asset data", async () => {
-    const { understandAsset } = await importModule();
+    const { understandAsset, getAssetUnderstandingMetrics } = await importModule();
 
     const longText = "x".repeat(50000);
     const hugeData = "a".repeat(700000);
@@ -195,9 +195,12 @@ describe("understandAsset", () => {
 
     const asset = { type: "image", data: hugeData, size: Number.MAX_SAFE_INTEGER };
     const result = await understandAsset(asset, { modelRouter });
+    const metrics = getAssetUnderstandingMetrics();
 
     expect(result.description.length).toBe(longText.length);
     expect(result.description.slice(0, 3)).toBe("xxx");
+    expect(metrics.oversizedJsonResponses).toBeGreaterThanOrEqual(1);
+    expect(metrics.compressionAttempts).toBeGreaterThanOrEqual(1);
   });
 
   it("returns sanitized error messages when vision calls fail", async () => {
@@ -221,6 +224,17 @@ describe("understandAsset", () => {
 });
 
 describe("understandAssets", () => {
+  it("resets metrics between runs when requested", async () => {
+    const { understandAsset, getAssetUnderstandingMetrics, resetAssetUnderstandingMetrics } = await importModule();
+    const modelRouter = { call: vi.fn(async () => ({ content: "x".repeat(50000) })) };
+
+    await understandAsset({ type: "image", data: "img" }, { modelRouter });
+    expect(getAssetUnderstandingMetrics().oversizedJsonResponses).toBeGreaterThanOrEqual(1);
+
+    resetAssetUnderstandingMetrics();
+    expect(getAssetUnderstandingMetrics().oversizedJsonResponses).toBe(0);
+  });
+
   it("returns empty array for null/undefined/empty/object assets", async () => {
     const { understandAssets } = await importModule();
 

@@ -18,7 +18,7 @@ vi.mock('../../../../../js/agents/shared/utils/logger.js', () => ({
   createLogger: mockCreateLogger,
 }));
 
-import { isRetryableError, RetryStrategy, resetGlobalRetryStats } from '../../../../../js/agents/shared/retry-strategy.js';
+import { isRetryableError, RetryStrategy, resetGlobalRetryStats, getGlobalRetryStats } from '../../../../../js/agents/shared/retry-strategy.js';
 
 const FIXED_TIME = new Date('2024-01-01T00:00:00.000Z');
 
@@ -159,6 +159,27 @@ describe('RetryStrategy', () => {
 
     vi.setSystemTime(new Date(FIXED_TIME.getTime() + 61000));
     expect(strategy.canRetry()).toBe(true);
+  });
+
+  it('isolates global retry budgets by scope', () => {
+    const scopeA = new RetryStrategy({ globalBudgetPerMinute: 1, budgetScope: 'run:A' });
+    const scopeB = new RetryStrategy({ globalBudgetPerMinute: 1, budgetScope: 'run:B' });
+
+    scopeA.recordRetry();
+    expect(scopeA.canRetry()).toBe(false);
+    expect(scopeB.canRetry()).toBe(true);
+    expect(getGlobalRetryStats('run:A', 1).retriesLastMinute).toBe(1);
+    expect(getGlobalRetryStats('run:B', 1).retriesLastMinute).toBe(0);
+  });
+
+  it('supports deterministic jitter via injected random function', () => {
+    const strategy = new RetryStrategy({
+      baseDelayMs: 1000,
+      maxDelayMs: 3000,
+      jitterFactor: 0.1,
+      random: () => 1,
+    });
+    expect(strategy.calculateDelay(2)).toBe(3300);
   });
 
   it('execute returns on first success without retries', async () => {

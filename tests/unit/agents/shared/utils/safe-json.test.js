@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import safeJson, { safeJsonParse } from '../../../../../js/agents/shared/utils/safe-json.js';
+import safeJson, { safeJsonParse, safeJsonParseDetailed } from '../../../../../js/agents/shared/utils/safe-json.js';
 
 const mockedOs = vi.hoisted(() => ({
   homedir: vi.fn(() => '/mock/home'),
@@ -120,8 +120,37 @@ describe('safeJsonParse', () => {
   });
 });
 
+describe('safeJsonParseDetailed', () => {
+  it('returns structured oversized diagnostics', () => {
+    const payload = `"${'x'.repeat(10)}"`;
+    const result = safeJsonParseDetailed(payload, { maxChars: 5 });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: false,
+        value: null,
+        code: 'oversized',
+        maxChars: 5,
+        observedChars: payload.length,
+      }),
+    );
+  });
+
+  it('distinguishes invalid JSON from nullish/empty input', () => {
+    expect(safeJsonParseDetailed('{bad}')).toEqual(
+      expect.objectContaining({
+        ok: false,
+        code: 'invalid_json',
+      }),
+    );
+    expect(safeJsonParseDetailed(undefined)).toEqual({ ok: false, value: null, code: 'nullish' });
+    expect(safeJsonParseDetailed('   ')).toEqual({ ok: false, value: null, code: 'empty' });
+  });
+});
+
 describe('default', () => {
   it('exposes safeJsonParse on the default export', () => {
     expect(safeJson.safeJsonParse).toBe(safeJsonParse);
+    expect(safeJson.safeJsonParseDetailed).toBe(safeJsonParseDetailed);
   });
 });

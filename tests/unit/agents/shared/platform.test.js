@@ -1,7 +1,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { Platform, isNodeLike } from '../../../../js/agents/shared/platform.js';
+import { Platform, isNodeLike, getPlatformCapabilities } from '../../../../js/agents/shared/platform.js';
 
 describe("shared/platform", () => {
   describe("Platform", () => {
@@ -43,6 +43,33 @@ describe("shared/platform", () => {
     it("returns true in Node.js test environment", () => {
       // Running in Node.js, should return true
       expect(isNodeLike()).toBe(true);
+    });
+  });
+
+  describe("getPlatformCapabilities", () => {
+    it("returns a stable capability contract", () => {
+      const caps = getPlatformCapabilities();
+      expect(caps).toEqual(
+        expect.objectContaining({
+          runtime: expect.any(String),
+          runtimeContract: expect.any(String),
+          nodeLike: expect.any(Boolean),
+          supportsNodeFs: expect.any(Boolean),
+          supportsMcpStdio: expect.any(Boolean),
+          supportsBrowserStorage: expect.any(Boolean),
+          limitations: expect.any(Array),
+        }),
+      );
+    });
+
+    it("keeps Deno fallback semantics explicit", () => {
+      const caps = getPlatformCapabilities();
+      if (Platform.isDeno) {
+        expect(caps.runtimeContract).toBe("browser_compat");
+        expect(caps.limitations.length).toBeGreaterThan(0);
+      } else {
+        expect(caps.runtimeContract).toBe("native");
+      }
     });
   });
 });

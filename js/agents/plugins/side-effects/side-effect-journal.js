@@ -7,8 +7,6 @@ import {
   readTextFromVfs,
   writeTextToVfs,
   appendTextToVfs,
-  createMemoryVfs,
-  createStorageAdapter,
   buildJournalEntry,
   readWalReplayState,
   applyWalReplayState,
@@ -16,9 +14,6 @@ import {
   resolveRollbackDeps,
   applyRollbackResult,
 } from "./side-effect-journal-helpers.js";
-
-/** @type {typeof globalThis.process} */
-const process = globalThis.process;
 
 /**
  * @typedef {object} SideEffectJournalCheckpointRef
@@ -187,6 +182,10 @@ export class SideEffectJournal {
   /** @type {number} */ _persistedCursor;
   /** @type {Promise<void>} */ _persistQueue;
   /** @type {boolean} */ _appendFallbackWarned;
+  /** @type {number} */ _appendFallbackCount;
+  /** @type {boolean} */ _oversizedWalEntryWarned;
+  /** @type {number} */ _oversizedEntryTrimmedCount;
+  /** @type {number} */ _oversizedEntrySkippedCount;
 
   /**
    * @param {SideEffectJournalOptions | undefined} [input]
@@ -213,6 +212,14 @@ export class SideEffectJournal {
     this._persistQueue = Promise.resolve();
     /** @type {boolean} */
     this._appendFallbackWarned = false;
+    /** @type {number} */
+    this._appendFallbackCount = 0;
+    /** @type {boolean} */
+    this._oversizedWalEntryWarned = false;
+    /** @type {number} */
+    this._oversizedEntryTrimmedCount = 0;
+    /** @type {number} */
+    this._oversizedEntrySkippedCount = 0;
   }
 
   /**
@@ -557,13 +564,21 @@ export class SideEffectJournal {
 
       try {
         const slimJson = JSON.stringify(slim);
-        if (encoder.encode(slimJson).length <= MAX_WAL_LINE_SIZE) {
+        const slimBytes = encoder.encode(slimJson).length;
+        if (slimBytes <= MAX_WAL_LINE_SIZE) {
+          this._oversizedEntryTrimmedCount += 1;
           if (!this._oversizedWalEntryWarned) {
             this._oversizedWalEntryWarned = true;
-            this.logger?.warn?.("[SideEffectJournal] WAL entry exceeded MAX_WAL_LINE_SIZE; meta was dropped");
+            this.logger?.warn?.("[SideEffectJournal] WAL entry exceeded MAX_WAL_LINE_SIZE; meta was dropped", {
+              seq: entry?.seq,
+              originalBytes: jsonBytes,
+              trimmedBytes: slimBytes,
+              limitBytes: MAX_WAL_LINE_SIZE,
+            });
           }
           json = slimJson;
         } else {
+          this._oversizedEntrySkippedCount += 1;
           this.logger?.warn?.(
             `[SideEffectJournal] WAL entry too large (${jsonBytes} bytes; max ${MAX_WAL_LINE_SIZE}); skipping seq ${entry?.seq ?? "?"}`,
           );
@@ -582,9 +597,20 @@ export class SideEffectJournal {
       const { ok, appended } = await appendTextToVfs(vfs, walPath, line);
       if (!ok) return { ok: false, reason: "wal_write_failed" };
 
-      if (!appended && !this._appendFallbackWarned) {
-        this._appendFallbackWarned = true;
-        this.logger?.warn?.("[SideEffectJournal] WAL append fallback used; file was rewritten");
+      if (!appended) {
+        this._appendFallbackCount += 1;
+        if (!this._appendFallbackWarned) {
+          this._appendFallbackWarned = true;
+          this.logger?.warn?.("[SideEffectJournal] WAL append fallback used; file was rewritten", {
+            seq: entry?.seq,
+            fallbackCount: this._appendFallbackCount,
+          });
+        } else {
+          this.logger?.debug?.("[SideEffectJournal] WAL append fallback reused", {
+            seq: entry?.seq,
+            fallbackCount: this._appendFallbackCount,
+          });
+        }
       }
 
       if (typeof entry?.seq === "number") {
@@ -597,6 +623,26 @@ export class SideEffectJournal {
       this.logger?.warn?.(`[SideEffectJournal] WAL write failed: ${msg}`);
       return { ok: false, reason: "wal_write_failed", error: msg };
     }
+  }
+
+  /**
+   * Get WAL persistence metrics for observability.
+   * @returns {{
+   *   appendFallbackCount: number,
+   *   oversizedEntryTrimmedCount: number,
+   *   oversizedEntrySkippedCount: number,
+   *   persistedCursor: number,
+   *   entryCount: number,
+   * }}
+   */
+  getPersistenceStats() {
+    return {
+      appendFallbackCount: this._appendFallbackCount,
+      oversizedEntryTrimmedCount: this._oversizedEntryTrimmedCount,
+      oversizedEntrySkippedCount: this._oversizedEntrySkippedCount,
+      persistedCursor: this._persistedCursor,
+      entryCount: this._entries.length,
+    };
   }
 
   /**
@@ -684,125 +730,3 @@ export class SideEffectJournal {
 }
 
 export default SideEffectJournal;
-
-const SHOULD_RUN_INLINE_TESTS =
-  typeof process !== "undefined" &&
-  Array.isArray(process.execArgv) &&
-  process.execArgv.includes("--test");
-
-if (SHOULD_RUN_INLINE_TESTS) {
-  (async () => {
-    // @ts-ignore
-    const { test } = await import("node:test");
-    // @ts-ignore
-    const { default: assert } = await import("node:assert/strict");
-
-    test("SideEffectJournal.replayFromStorage returns missing_wal when empty", async () => {
-      const vfs = createMemoryVfs();
-      const journal = new SideEffectJournal({ runId: "run-empty", vfs, walDir: ".wal" });
-
-      const res = await journal.replayFromStorage();
-      assert.equal(res.ok, false);
-      assert.equal(res.reason, "missing_wal");
-    });
-
-    test("SideEffectJournal.replayFromStorage skips invalid WAL lines", async () => {
-      const vfs = createMemoryVfs();
-      const journal = new SideEffectJournal({ runId: "run-replay", vfs, walDir: ".wal" });
-      const walPath = ".wal/run-replay.jsonl";
-
-      const lines = [
-        JSON.stringify({ kind: "vfs_checkpoint", ts: 1, reversible: true, checkpoint: { artifactId: "ck-1" } }),
-        "{invalid",
-      ].join("\n");
-      await vfs.writeText(walPath, `${lines}\n`);
-
-      const res = await journal.replayFromStorage();
-      assert.equal(res.ok, true);
-      assert.equal(res.recovered, 1);
-      assert.equal(journal.getCursor(), 1);
-    });
-
-    test("SideEffectJournal.persist appends new WAL entries", async () => {
-      const vfs = createMemoryVfs();
-      const journal = new SideEffectJournal({ runId: "run-persist", vfs, walDir: ".wal" });
-
-      journal.record({ kind: "unknown", ts: 1, reversible: false });
-      journal.record({ kind: "unknown", ts: 2, reversible: false });
-
-      const res = await journal.persist();
-      assert.equal(res.ok, true);
-      assert.equal(res.persisted, 2);
-
-      const wal = await vfs.readText(".wal/run-persist.jsonl");
-      assert.equal(wal.trim().split(/\r?\n/).length, 2);
-    });
-
-    test("SideEffectJournal.compact rewrites WAL to current entries", async () => {
-      const vfs = createMemoryVfs();
-      const journal = new SideEffectJournal({ runId: "run-compact", vfs, walDir: ".wal" });
-      const walPath = ".wal/run-compact.jsonl";
-
-      journal.record({ kind: "unknown", ts: 1, reversible: false });
-      journal.record({ kind: "unknown", ts: 2, reversible: false });
-      await journal.persist();
-
-      await vfs.appendText(walPath, `${JSON.stringify({ kind: "unknown", ts: 3 })}\n`);
-
-      const res = await journal.compact();
-      assert.equal(res.ok, true);
-      assert.equal(res.before, 3);
-      assert.equal(res.after, 2);
-      assert.equal(res.saved, 1);
-
-      const wal = await vfs.readText(walPath);
-      assert.equal(wal.trim().split(/\r?\n/).length, 2);
-    });
-
-    test("SideEffectJournal.rollbackToCursor restores checkpoints and reports failures", async () => {
-      const vfs = createMemoryVfs();
-      const storageAdapter = createStorageAdapter();
-      const checkpointId = "ck-restore";
-
-      await storageAdapter.set(checkpointId, {
-        path: "restored.txt",
-        encoding: "utf8",
-        before: { text: "restored" },
-      });
-
-      const events = [];
-      const eventBus = {
-        emit: (name, payload) => {
-          events.push({ name, payload });
-        },
-      };
-
-      const journal = new SideEffectJournal({
-        runId: "run-rollback",
-        vfs,
-        storageAdapter,
-        eventBus,
-        walDir: ".wal",
-      });
-
-      journal.record({
-        kind: "vfs_checkpoint",
-        ts: 1,
-        reversible: true,
-        checkpoint: { artifactId: checkpointId },
-      });
-      journal.record({ kind: "custom", ts: 2, reversible: true });
-
-      const res = await journal.rollbackToCursor(0, { reason: "test" });
-      assert.equal(res.ok, false);
-      assert.equal(res.rolledBack, 1);
-      assert.equal(res.failures?.length, 1);
-      assert.equal(journal.getCursor(), 0);
-      assert.equal(await vfs.readText("restored.txt"), "restored");
-      assert.equal(events.length, 1);
-      assert.equal(events[0].name, "side_effects.rolled_back");
-    });
-  })().catch((err) => {
-    console.error("[SideEffectJournal] inline tests failed:", err);
-  });
-}

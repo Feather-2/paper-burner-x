@@ -3,7 +3,7 @@
  */
 
 // Platform detection
-export { Platform, isNodeLike } from "./platform.js";
+export { Platform, isNodeLike, getPlatformCapabilities } from "./platform.js";
 
 // Base classes
 export { DisposableBase } from "./base/disposable-base.js";
@@ -18,10 +18,17 @@ export { createLogger, useLogger, trackToolCall, logEvent } from "./utils/logger
 export { safeExec, catchAndLog, makeSafe, isAbortError, isTimeoutError } from "./utils/error-utils.js";
 export { wrapError, toErrorMessage } from "./utils/error-utils-extended.js";
 export { Deque } from "./utils/deque.js";
-export { safeJsonParse, protoSafeReviver } from "./utils/safe-json.js";
+export { safeJsonParse, safeJsonParseDetailed, protoSafeReviver } from "./utils/safe-json.js";
 export { extractJsonCandidate, stripThinkingTags } from "./utils/json-candidate.js";
 export { FileWatcher, isNativeWatchSupported } from "./utils/file-watcher.js";
-export { cryptoRandomHex, cryptoRandomUuid, makeSecureId, makeSecureTimestampedId } from "./utils/secure-id.js";
+export {
+  cryptoRandomHex,
+  cryptoRandomUuid,
+  makeSecureId,
+  makeSecureTimestampedId,
+  getSecureIdCapabilities,
+  isSecureIdSupported,
+} from "./utils/secure-id.js";
 export { checkCancelled, withCancellation, createLinkedSignal, mergeSignals } from "./utils/cancellation.js";
 export { classifyDeepSearchError, classifyDesignError, isNonRetryableError } from "./utils/error-classifier.js";
 export { isNonRecoverableDeepSearchError, toDeepSearchErrorMessage } from "./utils/error-classifier.js";

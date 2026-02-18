@@ -6,6 +6,8 @@ import {
   cryptoRandomUuid,
   makeSecureId,
   makeSecureTimestampedId,
+  getSecureIdCapabilities,
+  isSecureIdSupported,
 } from '../../../../../js/agents/shared/utils/secure-id.js';
 
 vi.mock('node:crypto', () => ({
@@ -47,6 +49,20 @@ afterEach(() => {
 });
 
 describe('shared/utils/secure-id', () => {
+  describe('capabilities', () => {
+    it('reports capability matrix from global crypto', () => {
+      expect(getSecureIdCapabilities()).toEqual(
+        expect.objectContaining({
+          hasCrypto: true,
+          hasGetRandomValues: true,
+          hasRandomUUID: true,
+          supported: true,
+        }),
+      );
+      expect(isSecureIdSupported()).toBe(true);
+    });
+  });
+
   describe('cryptoRandomHex', () => {
     it('returns lower-case hex for the default length', () => {
       const hex = cryptoRandomHex();
@@ -217,6 +233,12 @@ describe('shared/utils/secure-id', () => {
         'secure-id: globalThis.crypto is unavailable in this environment',
       );
     });
+
+    it('supports explicit insecure fallback when requested', () => {
+      vi.stubGlobal('crypto', undefined);
+      const id = makeSecureId('job', { allowInsecureFallback: true });
+      expect(id.startsWith('job_')).toBe(true);
+    });
   });
 
   describe('makeSecureTimestampedId', () => {
@@ -270,6 +292,12 @@ describe('shared/utils/secure-id', () => {
       expect(() => makeSecureTimestampedId('oops')).toThrow(
         'secure-id: crypto.getRandomValues is unavailable in this environment',
       );
+    });
+
+    it('supports explicit insecure timestamp fallback when requested', () => {
+      vi.stubGlobal('crypto', undefined);
+      const id = makeSecureTimestampedId('run', { allowInsecureFallback: true });
+      expect(id.startsWith('run_')).toBe(true);
     });
   });
 });

@@ -3,8 +3,62 @@
  */
 function getCrypto() {
   const c = globalThis.crypto;
-  if (!c) throw new Error("secure-id: globalThis.crypto is unavailable in this environment");
+  if (!c) {
+    throw new Error(
+      "secure-id: globalThis.crypto is unavailable in this environment. " +
+        "Call getSecureIdCapabilities() during startup and provide a Web Crypto polyfill if needed."
+    );
+  }
   return c;
+}
+
+/**
+ * Probe secure-id runtime capabilities.
+ * @returns {{
+ *   hasCrypto: boolean,
+ *   hasGetRandomValues: boolean,
+ *   hasRandomUUID: boolean,
+ *   supported: boolean,
+ * }}
+ */
+export function getSecureIdCapabilities() {
+  const crypto = globalThis.crypto;
+  const hasCrypto = !!crypto;
+  const hasGetRandomValues = typeof crypto?.getRandomValues === "function";
+  const hasRandomUUID = typeof crypto?.randomUUID === "function";
+  return {
+    hasCrypto,
+    hasGetRandomValues,
+    hasRandomUUID,
+    supported: hasCrypto && hasGetRandomValues,
+  };
+}
+
+/**
+ * Whether secure-id APIs are fully supported in current runtime.
+ * @returns {boolean}
+ */
+export function isSecureIdSupported() {
+  return getSecureIdCapabilities().supported;
+}
+
+function insecureHex(bytes = 16) {
+  const n = Math.max(1, Math.floor(Number(bytes) || 16));
+  let out = "";
+  for (let i = 0; i < n; i += 1) {
+    const x = Math.floor(Math.random() * 256);
+    out += x.toString(16).padStart(2, "0");
+  }
+  return out;
+}
+
+/**
+ * @param {string} prefix
+ * @returns {string}
+ */
+function insecureId(prefix) {
+  const p = typeof prefix === "string" && prefix.trim() ? prefix.trim() : "id";
+  return `${p}_${Date.now().toString(36)}_${insecureHex(8)}`;
 }
 
 /**
@@ -40,19 +94,35 @@ export function cryptoRandomUuid() {
 /**
  * Generate a stable, namespaced id using a prefix and random UUID.
  * @param {string} [prefix]
+ * @param {{ allowInsecureFallback?: boolean }} [options]
  * @returns {string}
  */
-export function makeSecureId(prefix = "id") {
+export function makeSecureId(prefix = "id", options) {
   const p = typeof prefix === "string" && prefix.trim() ? prefix.trim() : "id";
-  return `${p}_${cryptoRandomUuid()}`;
+  try {
+    return `${p}_${cryptoRandomUuid()}`;
+  } catch (err) {
+    if (options?.allowInsecureFallback === true) {
+      return insecureId(p);
+    }
+    throw err;
+  }
 }
 
 /**
  * Generate a stable, namespaced id using a prefix, timestamp, and random bytes.
  * @param {string} [prefix]
+ * @param {{ allowInsecureFallback?: boolean }} [options]
  * @returns {string}
  */
-export function makeSecureTimestampedId(prefix = "id") {
+export function makeSecureTimestampedId(prefix = "id", options) {
   const p = typeof prefix === "string" && prefix.trim() ? prefix.trim() : "id";
-  return `${p}_${Date.now().toString(36)}_${cryptoRandomHex(8)}`;
+  try {
+    return `${p}_${Date.now().toString(36)}_${cryptoRandomHex(8)}`;
+  } catch (err) {
+    if (options?.allowInsecureFallback === true) {
+      return insecureId(p);
+    }
+    throw err;
+  }
 }

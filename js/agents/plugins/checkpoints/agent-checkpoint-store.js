@@ -1,6 +1,6 @@
 import { StorageVfs } from "../../vfs/vfs.storage.js";
 import { acquireLock } from "../../vfs/file-lock.js";
-import { safeJsonParse } from "../../shared/index.js";
+import { safeJsonParseDetailed } from "../../shared/index.js";
 import { createLogger } from "../../shared/index.js";
 import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/index.js";
 import { makeSecureTimestampedId } from "../../shared/index.js";
@@ -224,11 +224,24 @@ async function loadIndex(vfs, runId) {
   const path = buildIndexPath(runId);
   try {
     const raw = await readText(vfs, path);
-    const parsed = safeJsonParse(raw, { maxChars: INDEX_JSON_MAX_CHARS });
+    const parsedResult = safeJsonParseDetailed(raw, { maxChars: INDEX_JSON_MAX_CHARS });
+    if (!parsedResult.ok) {
+      if (parsedResult.code === "oversized") {
+        logger.warn(
+          `[checkpoint-store] index parse failed: oversized payload (${parsedResult.observedChars} chars > ${parsedResult.maxChars} chars)`
+        );
+      } else if (parsedResult.code === "invalid_json") {
+        logger.warn(`[checkpoint-store] index parse failed: invalid_json (${parsedResult.error || "unknown"})`);
+      }
+      return [];
+    }
+
+    const parsed = parsedResult.value;
     if (Array.isArray(parsed)) return parsed;
     if (parsed && typeof parsed === "object" && Array.isArray(parsed.checkpoints)) {
       return parsed.checkpoints;
     }
+    logger.warn("[checkpoint-store] index parse failed: invalid_index_shape");
     return [];
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err ?? "");
@@ -453,7 +466,25 @@ export class AgentCheckpointStore {
 
     try {
       const raw = await readText(vfs, buildCheckpointPath(id, resolved));
-      const parsed = safeJsonParse(raw, { maxChars: CHECKPOINT_JSON_MAX_CHARS });
+      const parsedResult = safeJsonParseDetailed(raw, { maxChars: CHECKPOINT_JSON_MAX_CHARS });
+      if (!parsedResult.ok) {
+        if (parsedResult.code === "oversized") {
+          this._logger?.warn?.(
+            `[checkpoint-store] Checkpoint ${resolved} parse failed: oversized payload (${parsedResult.observedChars} chars > ${parsedResult.maxChars} chars)`
+          );
+        } else if (parsedResult.code === "invalid_json") {
+          this._logger?.warn?.(
+            `[checkpoint-store] Checkpoint ${resolved} parse failed: invalid_json (${parsedResult.error || "unknown"})`
+          );
+        } else {
+          this._logger?.warn?.(
+            `[checkpoint-store] Checkpoint ${resolved} parse failed: ${parsedResult.code}`
+          );
+        }
+        return null;
+      }
+
+      const parsed = parsedResult.value;
       const validated = validateCheckpoint(parsed);
       if (!validated) {
         this._logger?.warn?.(`[checkpoint-store] Invalid checkpoint schema for ${resolved}`);

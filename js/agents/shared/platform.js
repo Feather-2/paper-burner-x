@@ -11,6 +11,18 @@ import { createLogger } from './utils/logger.js';
 const logger = createLogger({ stage: 'platform' });
 
 /** @typedef {"node"|"bun"|"deno"|"browser"|"unknown"} RuntimeType */
+/** @typedef {"native"|"browser_compat"} RuntimeContract */
+
+/**
+ * @typedef {object} PlatformCapabilities
+ * @property {RuntimeType} runtime
+ * @property {RuntimeContract} runtimeContract
+ * @property {boolean} nodeLike
+ * @property {boolean} supportsNodeFs
+ * @property {boolean} supportsMcpStdio
+ * @property {boolean} supportsBrowserStorage
+ * @property {string[]} limitations
+ */
 
 /**
  * `globalThis` in this repo is DOM-typed (no Node/Bun/Deno globals),
@@ -25,7 +37,7 @@ const logger = createLogger({ stage: 'platform' });
  */
 
 /**
- * @type {{ runtime: RuntimeType, isNode: boolean, isBun: boolean, isDeno: boolean, isBrowser: boolean }}
+ * @type {{ runtime: RuntimeType, isNode: boolean, isBun: boolean, isDeno: boolean, isBrowser: boolean, capabilities?: PlatformCapabilities }}
  */
 export const Platform = {
   runtime: "unknown",
@@ -71,6 +83,60 @@ function detectRuntime() {
 }
 
 detectRuntime();
+
+function detectRuntimeContract() {
+  if (Platform.isDeno) return "browser_compat";
+  return "native";
+}
+
+/**
+ * Build capability contract for callers that need runtime feature gates.
+ * @returns {PlatformCapabilities}
+ */
+function buildPlatformCapabilities() {
+  const runtimeContract = detectRuntimeContract();
+  const supportsNodeFs = Platform.isNode || Platform.isBun;
+  const supportsMcpStdio = Platform.isNode || Platform.isBun;
+  const supportsBrowserStorage = Platform.isBrowser || Platform.isDeno;
+  const limitations = [];
+
+  if (Platform.isDeno) {
+    limitations.push("vfs:fallback_browser_paths");
+    limitations.push("skills:fallback_browser_loader");
+    limitations.push("mcp:stdio_unavailable");
+  }
+
+  return {
+    runtime: Platform.runtime,
+    runtimeContract,
+    nodeLike: supportsNodeFs,
+    supportsNodeFs,
+    supportsMcpStdio,
+    supportsBrowserStorage,
+    limitations,
+  };
+}
+
+/** @type {PlatformCapabilities} */
+const platformCapabilities = buildPlatformCapabilities();
+Platform.capabilities = {
+  ...platformCapabilities,
+  limitations: [...platformCapabilities.limitations],
+};
+
+/**
+ * Get runtime capability contract.
+ * Deno currently reports `runtimeContract = "browser_compat"` to indicate
+ * browser-fallback execution semantics.
+ *
+ * @returns {PlatformCapabilities}
+ */
+export function getPlatformCapabilities() {
+  return {
+    ...platformCapabilities,
+    limitations: [...platformCapabilities.limitations],
+  };
+}
 
 /**
  * 兼容别名：检测是否为 Node-like 环境 (Node.js 或 Bun)

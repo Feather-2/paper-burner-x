@@ -157,8 +157,10 @@ export class ConvergenceDetector {
     this._history.push(sample);
 
     // 保持窗口大小
-    while (this._history.length > this._windowSize * 2) {
-      this._history.shift();
+    const maxHistory = this._windowSize * 2;
+    const overflow = this._history.length - maxHistory;
+    if (overflow > 0) {
+      this._history.splice(0, overflow);
     }
 
     // 计算收敛指标
