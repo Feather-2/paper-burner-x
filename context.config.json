@@ -1,0 +1,58 @@
+{
+  "v": 1,
+  "project": "paper-burner",
+
+  "paths": {
+    "context_dir": ".context",
+    "quality_file": "AUDIT.md",
+    "space_index": "CLAUDE.md",
+    "checkpoint_file": "CHECKPOINT.md"
+  },
+
+  "quality": {
+    "parser": "checklist",
+    "patterns": {
+      "checklist": "^\\s*-\\s*\\[([ x])\\]\\s*(I-\\d+)[:：]\\s*(.+)",
+      "bullet": "^\\s*-\\s*\\*\\*([^*]+)\\*\\*\\s*\\(([^)]+)\\):\\s*(.+)$"
+    },
+    "kinds": ["bug", "hardening"],
+    "bug_keywords": [
+      "bug", "crash", "throw", "exception", "typeerror",
+      "null", "undefined", "regression", "leak", "timeout",
+      "error_handling"
+    ]
+  },
+
+  "deps": {
+    "scan_roots": ["js/agents"],
+    "file_glob": "**/*.js",
+    "module_depth": 2,
+    "import_patterns": [
+      "import\\s+(?:[\\s\\S]*?)\\s+from\\s+['\"]([^'\"]+)['\"]",
+      "import\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)",
+      "export\\s+(?:[\\s\\S]*?)\\s+from\\s+['\"]([^'\"]+)['\"]"
+    ],
+    "event_patterns": {
+      "emit": "\\.(emit|publish|fire)\\s*\\(",
+      "subscribe": "\\.(on|subscribe|addEventListener)\\s*\\("
+    }
+  },
+
+  "space": {
+    "index_filename": "CLAUDE.md",
+    "module_depth_overrides": {
+      "js/agents": 4
+    }
+  },
+
+  "thresholds": {
+    "stale_window_days": 7,
+    "stale_atom_count": 5,
+    "stale_summary_atoms": 10,
+    "lock_timeout_ms": 300000,
+    "archive_days": 90,
+    "shard_compact_limit": 200,
+    "draft_backlog_warn": 20,
+    "deps_stale_days": 7
+  }
+}

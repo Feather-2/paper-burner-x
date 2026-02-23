@@ -7,6 +7,27 @@ on:
     branches: [ main ]
 
 jobs:
+  context-guardrails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Context smoke (write sandbox)
+        run: node scripts/context-smoke.js --with-write
+
+      - name: Context doctor
+        run: node scripts/context-doctor.js
+
+      - name: Context diff guard
+        run: node scripts/context-check.js --diff
+
   test:
     runs-on: ubuntu-latest
     steps:

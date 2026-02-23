@@ -43,8 +43,19 @@
     "test:agents:shared:coverage": "vitest run --config vitest.shared.config.js --coverage",
     "test:agents:prompts": "vitest run --config vitest.prompts.config.js",
     "test:agents:prompts:coverage": "vitest run --config vitest.prompts.config.js --coverage",
+    "context:coldstart": "node scripts/context-coldstart.js",
+    "context:coldstart:dry": "node scripts/context-coldstart.js --dry-run",
+    "context:smoke": "node scripts/context-smoke.js",
+    "context:smoke:write": "node scripts/context-smoke.js --with-write",
+    "context:doctor": "node scripts/context-doctor.js",
+    "context:vcs": "node scripts/context-vcs-info.js",
+    "context:check:diff": "node scripts/context-check.js --diff",
+    "context:funnel": "node scripts/context-funnel.js",
+    "context:funnel:batch": "node scripts/context-funnel-batch.js",
+    "context:stale:metrics": "node scripts/context-stale-metrics.js",
+    "context:stale:plan": "node scripts/context-stale-fix-plan.js",
     "bench": "node --expose-gc benchmarks/runner.js",
-    "postinstall": "echo 'No frontend build by default. Use npm run build:fe if needed.'"
+    "postinstall": "node scripts/_postinstall.js"
   },
   "dependencies": {
     "animejs": "^3.2.2",
