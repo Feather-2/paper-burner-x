@@ -1,0 +1,347 @@
+/**
+ * context-intent Plugin — 跨对话长期记忆
+ *
+ * 将 @pb/context-cli 的五维度意图层集成到 js/agents 微内核，
+ * 通过 VFS 实现 Browser (OPFS) / Node (nodefs) 双运行时。
+ *
+ * 职责划分：
+ *   fold.js  — 纯折叠函数（零依赖）
+ *   io.js   — VFS-backed JSONL I/O + 跨平台 ULID/Hash
+ *   index.js — Plugin 入口：生命周期 + ServiceBus + EventBus
+ *
+ * @module plugins/context/index
+ */
+
+/** @typedef {import('../../core/plugin.js').PluginContext} PluginContext */
+
+import { createPlugin } from '../../core/plugin.js';
+import { foldDecisions, foldExcludedLatest, moduleMatches } from './fold.js';
+import {
+  readJsonl, appendJsonl, appendDirty, readDirty, clearDirty,
+  ulid, contentHash, moduleToShard, today,
+  PERSPECTIVES, DECISION_OPS, SIGNAL_TYPES,
+} from './io.js';
+
+// ── 路径常量 ─────────────────────────────────────────────────────
+
+const CTX_ROOT   = '.context';
+const INTENT_DIR = `${CTX_ROOT}/intent`;
+const ATOMS_DIR  = `${INTENT_DIR}/atoms`;
+const DEC_DIR    = `${INTENT_DIR}/decisions`;
+const EXCL_DIR   = `${INTENT_DIR}/excluded`;
+const SIG_DIR    = `${INTENT_DIR}/signals`;
+const OPS_PATH   = `${DEC_DIR}/ops.jsonl`;
+const EXCL_PATH  = `${EXCL_DIR}/excluded.jsonl`;
+const SIG_PATH   = `${SIG_DIR}/signals.jsonl`;
+const DIRTY_PATH = `${INTENT_DIR}/.dirty`;
+
+// ── Plugin ───────────────────────────────────────────────────────
+
+export default createPlugin({
+  name: 'context-intent',
+  version: '1.0.0',
+  description: '跨对话长期记忆 — @pb/context-cli VFS 桥接',
+  dependencies: ['service/vfs'],
+
+  defaultConfig: {
+    /** 自动在 agent:started 时加载上下文 */
+    autoLoad: true,
+    /** 自动在 agent:completed 时 fold */
+    autoFold: true,
+    /** flush 策略: eager | batched */
+    flushPolicy: 'eager',
+    /** batched 模式下的 dirty 阈值 */
+    flushThreshold: 5,
+  },
+
+  async install(ctx) {
+    const vfs = ctx.services.get('vfs');
+    if (!vfs) throw new Error('context-intent requires service/vfs');
+
+    // 确保目录结构
+    for (const dir of [ATOMS_DIR, DEC_DIR, EXCL_DIR, SIG_DIR]) {
+      try { await vfs.mkdir(dir, { recursive: true }); } catch { /* exists */ }
+    }
+
+    // ── 初始状态 ──────────────────────────────────────────────
+
+    ctx.state.set('loaded', false);
+    ctx.state.set('module', null);
+    ctx.state.set('decisions', []);
+    ctx.state.set('atoms', []);
+    ctx.state.set('excluded', []);
+    ctx.state.set('dirty', { total: 0, by_shard: {} });
+
+    // ── context 服务 ─────────────────────────────────────────
+
+    ctx.registerService('context', {
+
+      /**
+       * 加载指定模块的意图上下文。
+       * @param {string} [module]   模块路径（如 'js/agents/core'）
+       * @param {string} [scenario] 场景 ('edit'|'resume'|'audit')
+       * @returns {Promise<{decisions:object[], atoms:object[], excluded:object[], dirty:object}>}
+       */
+      async load(module, scenario) {
+        const ops = await readJsonl(vfs, OPS_PATH);
+        let decisions = foldDecisions(ops);
+
+        // 按模块过滤
+        if (module) {
+          decisions = decisions.filter(d =>
+            (d.modules || []).some(m => moduleMatches(m, module))
+          );
+        }
+
+        // 加载 atoms（按 shard 读取）
+        let atoms = [];
+        if (module) {
+          const shard = moduleToShard(module);
+          atoms = await readJsonl(vfs, `${ATOMS_DIR}/${shard}`);
+          atoms = atoms.filter(a => a.type === 'atom');
+        }
+
+        // 加载 excluded
+        const allExcluded = await readJsonl(vfs, EXCL_PATH);
+        let excluded = foldExcludedLatest(allExcluded);
+        if (module) {
+          const relSlugs = new Set(decisions.map(d => d.slug));
+          excluded = excluded.filter(e => relSlugs.has(e.decision));
+        }
+
+        // dirty 状态
+        const dirty = await readDirty(vfs, DIRTY_PATH);
+
+        // 更新 StateBus
+        ctx.state.set('loaded', true);
+        ctx.state.set('module', module || null);
+        ctx.state.set('decisions', decisions);
+        ctx.state.set('atoms', atoms);
+        ctx.state.set('excluded', excluded);
+        ctx.state.set('dirty', dirty);
+
+        ctx.events.emit('context:loaded', {
+          module, scenario, decisions: decisions.length,
+          atoms: atoms.length, excluded: excluded.length,
+        });
+
+        return { decisions, atoms, excluded, dirty };
+      },
+
+      /**
+       * 写入一条 atom 记录。
+       * @param {object} data  { atom_key, content, perspective, related_modules, ... }
+       * @returns {Promise<{ok:boolean, id:string, shard:string, warnings:string[]}>}
+       */
+      async writeAtom(data) {
+        const warnings = [];
+        if (!data.atom_key || !data.content || !data.perspective) {
+          throw new Error('atom requires: atom_key, content, perspective');
+        }
+        if (!PERSPECTIVES.has(data.perspective)) {
+          throw new Error(`perspective '${data.perspective}' not in allowed set`);
+        }
+        const modules = data.related_modules || [];
+        if (modules.length === 0) throw new Error('related_modules must have >= 1 entry');
+
+        const id = ulid();
+        const hash = await contentHash(data.content);
+        const record = {
+          v: 1, type: 'atom', id,
+          atom_key: data.atom_key,
+          content: data.content,
+          content_hash: hash,
+          perspective: data.perspective,
+          status: data.status || 'draft',
+          source: data.source || null,
+          related_modules: modules,
+          related_decisions: data.related_decisions || [],
+          created: new Date().toISOString(),
+        };
+
+        const shardName = moduleToShard(modules[0]);
+        const shardPath = `${ATOMS_DIR}/${shardName}`;
+
+        // 冲突检测
+        const existing = await readJsonl(vfs, shardPath);
+        const sameKey = existing.filter(r => r.atom_key === data.atom_key && r.type === 'atom');
+        const hasConflict = sameKey.length > 0 && sameKey.every(r => r.content_hash !== hash);
+
+        await appendJsonl(vfs, shardPath, record);
+        await appendDirty(vfs, DIRTY_PATH, shardName, 'atom');
+
+        if (hasConflict) {
+          const sig = {
+            atom_id: id, type: 'conflict',
+            existing_ids: sameKey.map(r => r.id),
+            date: today(),
+          };
+          await appendJsonl(vfs, SIG_PATH, sig);
+          warnings.push(`conflict: atom_key ${data.atom_key} has divergent content`);
+        }
+
+        // 交叉引用
+        for (let i = 1; i < modules.length; i++) {
+          const refShard = moduleToShard(modules[i]);
+          await appendJsonl(vfs, `${ATOMS_DIR}/${refShard}`, {
+            v: 1, type: 'atom_ref', ref: id, see: shardName,
+          });
+        }
+
+        ctx.events.emit('context:atom_written', { id, shard: shardName });
+        return { ok: true, id, shard: shardName, warnings };
+      },
+
+      /**
+       * 写入一条 decision 操作。
+       * @param {object} data  { op:'upsert'|'supersede'|'restructure', slug, ... }
+       * @returns {Promise<{ok:boolean, op:string, slug:string, warnings:string[]}>}
+       */
+      async decide(data) {
+        const { op, slug } = data;
+        if (!op || !DECISION_OPS.has(op)) {
+          throw new Error(`op must be one of: ${[...DECISION_OPS].join(', ')}`);
+        }
+        if (!slug) throw new Error('missing slug');
+
+        const existing = await readJsonl(vfs, OPS_PATH);
+        const warnings = [];
+
+        if (op === 'upsert') {
+          if (!data.title || !data.choice) {
+            throw new Error('upsert requires: title, choice');
+          }
+          const prevUpsert = existing.filter(o => o.slug === slug && o.op === 'upsert');
+          if (prevUpsert.length > 0 && !data.note) {
+            throw new Error('note required for subsequent upsert of same slug');
+          }
+          const record = {
+            v: 1, type: 'decision_op', op: 'upsert',
+            slug, title: data.title, choice: data.choice,
+            trigger: data.trigger || { type: 'manual', note: 'agent-session' },
+            modules: data.modules || [],
+            date: data.date || today(),
+          };
+          if (data.assumptions) record.assumptions = data.assumptions;
+          if (data.note) record.note = data.note;
+          await appendJsonl(vfs, OPS_PATH, record);
+        } else if (op === 'supersede') {
+          if (!data.by) throw new Error('supersede requires: by');
+          await appendJsonl(vfs, OPS_PATH, {
+            v: 1, type: 'decision_op', op: 'supersede',
+            slug, by: data.by, date: data.date || today(),
+          });
+        } else if (op === 'restructure') {
+          if (!data.kind || !data.from || !data.to) {
+            throw new Error('restructure requires: kind, from, to');
+          }
+          const record = {
+            v: 1, type: 'decision_op', op: 'restructure',
+            kind: data.kind, from: data.from, to: data.to,
+            slug, date: data.date || today(),
+          };
+          if (data.note) record.note = data.note;
+          await appendJsonl(vfs, OPS_PATH, record);
+        }
+
+        await appendDirty(vfs, DIRTY_PATH, 'ops', 'decision');
+        ctx.events.emit('context:decision_written', { op, slug });
+        return { ok: true, op, slug, warnings };
+      },
+
+      /**
+       * 写入一条 signal。
+       * @param {object} data  { type, atom_id?, ... }
+       * @returns {Promise<{ok:boolean, id:string}>}
+       */
+      async signal(data) {
+        if (!data.type || !SIGNAL_TYPES.has(data.type)) {
+          throw new Error(`signal type must be one of: ${[...SIGNAL_TYPES].join(', ')}`);
+        }
+        const id = ulid();
+        const record = { v: 1, ...data, id, created: new Date().toISOString() };
+        await appendJsonl(vfs, SIG_PATH, record);
+        await appendDirty(vfs, DIRTY_PATH, 'signals', 'signal');
+        ctx.events.emit('context:signal_written', { id, type: data.type });
+        return { ok: true, id };
+      },
+
+      /**
+       * 折叠当前全部决策，返回有效状态。
+       * @returns {Promise<{decisions:object[], excluded:object[]}>}
+       */
+      async fold() {
+        const ops = await readJsonl(vfs, OPS_PATH);
+        const decisions = foldDecisions(ops);
+        const allExcl = await readJsonl(vfs, EXCL_PATH);
+        const excluded = foldExcludedLatest(allExcl);
+        ctx.state.set('decisions', decisions);
+        ctx.state.set('excluded', excluded);
+        return { decisions, excluded };
+      },
+
+      /**
+       * 获取 dirty 状态。
+       * @returns {Promise<{total:number, by_shard:Record<string,number>, entries:object[]}>}
+       */
+      async getDirty() {
+        return readDirty(vfs, DIRTY_PATH);
+      },
+
+      /**
+       * 清空 dirty 标记（flush 后调用）。
+       */
+      async clearDirty() {
+        await clearDirty(vfs, DIRTY_PATH);
+        ctx.state.set('dirty', { total: 0, by_shard: {} });
+        ctx.events.emit('context:dirty_cleared', {});
+      },
+
+      /**
+       * 获取 StateBus 中的当前快照。
+       * @returns {{loaded:boolean, module:string|null, decisions:object[], atoms:object[], excluded:object[], dirty:object}}
+       */
+      snapshot() {
+        return {
+          loaded: ctx.state.get('loaded'),
+          module: ctx.state.get('module'),
+          decisions: ctx.state.get('decisions') || [],
+          atoms: ctx.state.get('atoms') || [],
+          excluded: ctx.state.get('excluded') || [],
+          dirty: ctx.state.get('dirty') || { total: 0, by_shard: {} },
+        };
+      },
+    });
+
+    // ── EventBus 自动化 ──────────────────────────────────────
+
+    if (ctx.config.autoLoad) {
+      ctx.on('agent:started', async (evt) => {
+        const module = evt?.module || evt?.config?.module || null;
+        try {
+          await ctx.services.call('context', 'load', [module]);
+          ctx.log.info(`context loaded for module=${module || '(global)'}`);
+        } catch (e) {
+          ctx.log.warn(`context auto-load failed: ${e.message}`);
+        }
+      });
+    }
+
+    if (ctx.config.autoFold) {
+      ctx.on('agent:completed', async () => {
+        try {
+          const { decisions } = await ctx.services.call('context', 'fold', []);
+          ctx.log.info(`context folded: ${decisions.length} decisions`);
+        } catch (e) {
+          ctx.log.warn(`context auto-fold failed: ${e.message}`);
+        }
+      });
+    }
+
+    ctx.log.info('context-intent plugin installed');
+  },
+
+  async uninstall(ctx) {
+    ctx.log.info('context-intent plugin uninstalled');
+  },
+});

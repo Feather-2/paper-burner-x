@@ -48,6 +48,9 @@ import { createPlugin } from '../../core/plugin.js';
  * @property {(path: string) => Promise<any>} [unlink]
  * @property {(path: string, options?: any) => Promise<any>} [rm]
  * @property {(pattern: any, options?: any) => Promise<any>} [glob]
+ * @property {(path: string) => Promise<string>} [readText]
+ * @property {(path: string, text: string) => Promise<void>} [writeText]
+ * @property {(path: string, text: string) => Promise<void>} [appendText]
  */
 
 /**
@@ -228,6 +231,47 @@ export default createPlugin({
         );
 
         return fallbackGlobFn(request);
+      },
+
+      /**
+       * 读取文本文件
+       * @param {string} path - 文件路径
+       * @returns {Promise<string>}
+       */
+      async readText(path) {
+        if (typeof vfs.readText === 'function') return vfs.readText(path);
+        return vfs.readFile(path, { encoding: 'utf8' });
+      },
+
+      /**
+       * 写入文本文件
+       * @param {string} path - 文件路径
+       * @param {string} text - 文本内容
+       * @returns {Promise<void>}
+       */
+      async writeText(path, text) {
+        if (typeof vfs.writeText === 'function') return vfs.writeText(path, text);
+        const result = await vfs.writeFile(path, text, { encoding: 'utf8' });
+        ctx.events.emit('vfs:write', { path });
+        return result;
+      },
+
+      /**
+       * 追加文本到文件
+       * @param {string} path - 文件路径
+       * @param {string} text - 追加内容
+       * @returns {Promise<void>}
+       */
+      async appendText(path, text) {
+        if (typeof vfs.appendText === 'function') {
+          const result = await vfs.appendText(path, text);
+          ctx.events.emit('vfs:write', { path });
+          return result;
+        }
+        // 降级：read + append + write
+        let existing = '';
+        try { existing = await this.readText(path); } catch { /* new file */ }
+        return this.writeText(path, existing + text);
       },
 
       /**
