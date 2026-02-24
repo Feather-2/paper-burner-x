@@ -66,16 +66,8 @@ function createTestKernel() {
   });
   pm.register(vfsPlugin);
 
-  // 直接同步注册 VFS 到 ServiceBus（plugin 的 install 用同步 get）
+  // 注册 VFS 到 ServiceBus（install 中 await ctx.services.get('vfs') 会取到）
   services.register('vfs', vfs);
-
-  // 同时 monkey-patch ServiceBus.get 为同步返回（plugin 代码没有 await）
-  const origGet = services.get.bind(services);
-  services.get = function syncGet(name) {
-    const entry = this._services.get(name);
-    if (entry) return entry.instance;
-    return origGet(name);
-  };
 
   return { kernel, pm, vfs, events, state, services };
 }

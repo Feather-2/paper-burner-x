@@ -57,7 +57,7 @@ export default createPlugin({
   },
 
   async install(ctx) {
-    const vfs = ctx.services.get('vfs');
+    const vfs = await ctx.services.get('vfs');
     if (!vfs) throw new Error('context-intent requires service/vfs');
 
     // 确保目录结构
