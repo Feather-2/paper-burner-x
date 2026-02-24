@@ -52,6 +52,8 @@ export default createPlugin({
     flushPolicy: 'eager',
     /** batched 模式下的 dirty 阈值 */
     flushThreshold: 5,
+    /** PreLLMCall 注入最大次数 (0=无限) */
+    maxContextInjections: 1,
   },
 
   async install(ctx) {
@@ -320,6 +322,7 @@ export default createPlugin({
         const module = evt?.module || evt?.config?.module || null;
         try {
           await ctx.services.call('context', 'load', [module]);
+          injectionCount = 0; // reset for new agent run
           ctx.log.info(`context loaded for module=${module || '(global)'}`);
         } catch (e) {
           ctx.log.warn(`context auto-load failed: ${e.message}`);
@@ -341,12 +344,17 @@ export default createPlugin({
     // ── PreLLMCall Hook — 决策上下文注入 ─────────────────────
 
     const CONTEXT_MARKER = '[context-intent]';
+    const maxInjections = ctx.config.maxContextInjections || 0;
+    let injectionCount = 0;
 
     if (typeof ctx.events?.registerHook === 'function') {
       ctx.events.registerHook('PreLLMCall', {
         type: 'command',
         blocking: false,
         handler(hookCtx) {
+          // Token 成本控制：超过 maxInjections 后跳过（0=无限）
+          if (maxInjections > 0 && injectionCount >= maxInjections) return;
+
           const decisions = ctx.state.get('decisions') || [];
           const excluded = ctx.state.get('excluded') || [];
           const active = decisions.filter(d => d.status === 'decided');
@@ -390,6 +398,7 @@ export default createPlugin({
           messages.splice(insertIdx, 0, {
             role: 'system', content: lines.join('\n'),
           });
+          injectionCount++;
         },
       });
       ctx.log.info('PreLLMCall hook registered for decision context injection');
