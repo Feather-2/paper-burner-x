@@ -2,6 +2,8 @@ import { BaseAgentLoop, checkCancelled } from "../runtime/core/agent-loop.js";
 import { robustParseJson } from "../shared/index.js";
 import { isPlainObject, safeInt, toNonEmptyString } from "../shared/index.js";
 import { createDefaultMiddlewareChain } from "../runtime/core/middleware/middleware-chain.js";
+import { createHookMiddleware } from "../runtime/hooks/hook-registry.js";
+import { getHookRegistry } from "../runtime/hooks/event-bus-hooks.js";
 import { AgentCheckpointStore } from "../plugins/checkpoints/index.js";
 import { ensureRuntimeState } from "../plugins/telemetry/index.js";
 
@@ -409,12 +411,20 @@ export class DefaultAgentLoop extends BaseAgentLoop {
       }
     }
 
+    // Hook middleware: bridges HookRegistry → MiddlewareChain for PreLLMCall etc.
+    const hookRegistry = getHookRegistry(this.eventBus);
+    const hookMw = hookRegistry ? createHookMiddleware(hookRegistry) : null;
+
     const runWithMiddleware = async (stepName, handler, extra = {}) => {
       const ctx = { ...baseCtx, ...extra, stepName, phase: stepName, state: api.state ?? {}, messages: this.messages };
-      if (middlewareChain && typeof middlewareChain.execute === "function") {
-        return middlewareChain.execute(ctx, () => handler(ctx));
-      }
-      return handler(ctx);
+      const executeChain = (c) => {
+        if (middlewareChain && typeof middlewareChain.execute === "function") {
+          return middlewareChain.execute(c, () => handler(c));
+        }
+        return handler(c);
+      };
+      if (hookMw) return hookMw(ctx, () => executeChain(ctx));
+      return executeChain(ctx);
     };
 
     const requestedTool = toNonEmptyString(input?.tool || input?.capability || input?.action);
@@ -611,6 +621,9 @@ export class DefaultAgentLoop extends BaseAgentLoop {
     for (let i = startIteration; i < this.maxIterations; i++) {
       checkCancelled(signal);
       await this.flushCompression?.();
+
+      // beforeModel phase: allows PreLLMCall hooks to inject context into messages
+      await runWithMiddleware("beforeModel", () => {}, { messages: this.messages });
 
       let resp;
       try {

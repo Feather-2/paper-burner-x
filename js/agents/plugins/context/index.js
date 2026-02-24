@@ -338,6 +338,63 @@ export default createPlugin({
       });
     }
 
+    // ── PreLLMCall Hook — 决策上下文注入 ─────────────────────
+
+    const CONTEXT_MARKER = '[context-intent]';
+
+    if (typeof ctx.events?.registerHook === 'function') {
+      ctx.events.registerHook('PreLLMCall', {
+        type: 'command',
+        blocking: false,
+        handler(hookCtx) {
+          const decisions = ctx.state.get('decisions') || [];
+          const excluded = ctx.state.get('excluded') || [];
+          const active = decisions.filter(d => d.status === 'decided');
+          if (!active.length && !excluded.length) return;
+
+          const messages = hookCtx?.messages;
+          if (!Array.isArray(messages)) return;
+
+          // 去重：移除上一轮注入的 context 消息
+          for (let j = messages.length - 1; j >= 0; j--) {
+            if (messages[j]?.role === 'system' &&
+                typeof messages[j]?.content === 'string' &&
+                messages[j].content.startsWith(CONTEXT_MARKER)) {
+              messages.splice(j, 1);
+            }
+          }
+
+          // 构造精简注入文本
+          const lines = [`${CONTEXT_MARKER} Active decisions:`];
+          for (const d of active.slice(0, 8)) {
+            lines.push(`- [${d.slug}] ${d.title}: ${d.choice}`);
+          }
+          if (active.length > 8) {
+            lines.push(`  ... +${active.length - 8} more`);
+          }
+          if (excluded.length) {
+            lines.push('Excluded patterns:');
+            for (const e of excluded.slice(0, 5)) {
+              lines.push(`- avoid: ${e.excluded} (see ${e.decision})`);
+            }
+          }
+
+          // 插入到最后一条 user/tool 消息之前
+          let insertIdx = messages.length;
+          for (let j = messages.length - 1; j >= 0; j--) {
+            if (messages[j]?.role === 'user' || messages[j]?.role === 'tool') {
+              insertIdx = j;
+              break;
+            }
+          }
+          messages.splice(insertIdx, 0, {
+            role: 'system', content: lines.join('\n'),
+          });
+        },
+      });
+      ctx.log.info('PreLLMCall hook registered for decision context injection');
+    }
+
     ctx.log.info('context-intent plugin installed');
   },
 
