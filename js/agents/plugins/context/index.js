@@ -386,6 +386,7 @@ export default createPlugin({
               lines.push(`- avoid: ${e.excluded} (see ${e.decision})`);
             }
           }
+          lines.push('For full context: context.load(<module>) | context.fold()');
 
           // 插入到最后一条 user/tool 消息之前
           let insertIdx = messages.length;
