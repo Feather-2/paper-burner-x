@@ -586,6 +586,8 @@ export class MessageManager {
         status: "info",
         payload: record,
       });
+      // 标准事件：让 plugin 层统一监听
+      this._emit("compression:applied", { payload: record });
     }
   }
 
