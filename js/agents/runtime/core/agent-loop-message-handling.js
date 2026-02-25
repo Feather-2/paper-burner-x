@@ -1,6 +1,7 @@
 import { Deque } from "../../shared/index.js";
 import { MessageManager } from "./message-manager.js";
 import { getLimit } from "./constants/limits.js";
+import { getHookRegistry } from "../hooks/event-bus-hooks.js";
 
 /**
  * @typedef {Record<string, any>} AnyRecord
@@ -29,6 +30,18 @@ export class MessageHandling {
    */
   constructor(loop, { contextConfig, tokenCounter, logger, emit, stageName, actor, maxUserInputs } = {}) {
     this._loop = loop;
+
+    // 桥接 hookRegistry 的 PreCompression/PostCompression 到 MessageManager 回调
+    const eventBus = loop?.eventBus ?? loop?._eventBus ?? null;
+    const runHooks = async (eventName, ctx) => {
+      const registry = getHookRegistry(eventBus);
+      if (!registry) return;
+      for (const hook of registry.list(eventName)) {
+        if (typeof hook.handler !== 'function') continue;
+        try { await hook.handler(ctx); } catch { /* non-blocking */ }
+      }
+    };
+
     this._loop._messageManager = new MessageManager({
       contextConfig,
       tokenCounter,
@@ -36,6 +49,8 @@ export class MessageHandling {
       emit,
       stageName,
       actor,
+      onBeforeCompress: (ctx) => runHooks('PreCompression', ctx),
+      onAfterCompress: (ctx) => runHooks('PostCompression', ctx),
     });
 
     /** @type {Deque<UserInputEntry>} */

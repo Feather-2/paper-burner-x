@@ -22,6 +22,9 @@ export const HookEvent = Object.freeze({
   // Tool 级别 (每次工具调用)
   PRE_TOOL_USE: "PreToolUse",
   POST_TOOL_USE: "PostToolUse",
+  // Compression 级别 (每次上下文压缩)
+  PRE_COMPRESSION: "PreCompression",
+  POST_COMPRESSION: "PostCompression",
 });
 
 /** @type {Set<string>} */
@@ -201,9 +204,11 @@ const STAGE_TO_HOOK_EVENT = Object.freeze({
   afterTool: HookEvent.POST_TOOL_USE,
   beforeModel: HookEvent.PRE_LLM_CALL,
   afterModel: HookEvent.POST_LLM_CALL,
+  beforeCompression: HookEvent.PRE_COMPRESSION,
+  afterCompression: HookEvent.POST_COMPRESSION,
 });
 
-const BEFORE_STAGES = new Set(["beforeAgent", "beforeTool", "beforeModel"]);
+const BEFORE_STAGES = new Set(["beforeAgent", "beforeTool", "beforeModel", "beforeCompression"]);
 
 /**
  * Convert a HookRegistry into a MiddlewareChain-compatible middleware function.

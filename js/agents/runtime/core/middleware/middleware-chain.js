@@ -21,6 +21,8 @@ export const Stage = Object.freeze({
   BEFORE_TOOL: "beforeTool",
   AFTER_TOOL: "afterTool",
   AFTER_AGENT: "afterAgent",
+  BEFORE_COMPRESSION: "beforeCompression",
+  AFTER_COMPRESSION: "afterCompression",
 });
 
 // ===== MiddlewareChain =====

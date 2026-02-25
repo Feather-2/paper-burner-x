@@ -82,6 +82,8 @@ const silentReporter = createScopedReporter("MessageManager");
  * @property {string} [actor]
  * @property {boolean} [asyncSummaryEnabled] - 是否启用异步摘要预生成
  * @property {(message: ChatMessage) => Promise<string|null>} [summaryGenerator] - 自定义摘要生成器
+ * @property {(ctx: {messages: ChatMessage[]}) => Promise<void>} [onBeforeCompress] - 压缩前回调（洋葱圈 before）
+ * @property {(ctx: {messages: ChatMessage[], record: CompressionRecord}) => Promise<void>} [onAfterCompress] - 压缩后回调（洋葱圈 after）
  */
 
 export class MessageManager {
@@ -110,6 +112,8 @@ export class MessageManager {
     this._emit = options.emit || null;
     this._stageName = options.stageName || "agent";
     this._actor = options.actor || "agent";
+    this._onBeforeCompress = options.onBeforeCompress || null;
+    this._onAfterCompress = options.onAfterCompress || null;
 
     // 异步摘要预生成配置
     this._asyncSummaryEnabled = options.asyncSummaryEnabled !== false;
@@ -528,6 +532,11 @@ export class MessageManager {
       return;
     }
 
+    // 洋葱圈 before：让 plugin 注入保护内容
+    if (typeof this._onBeforeCompress === "function") {
+      try { await this._onBeforeCompress({ messages: this._messages }); } catch { /* non-blocking */ }
+    }
+
     this._abortActiveCompression("superseded");
     const controller = new AbortController();
     this._compressionAbortController = controller;
@@ -541,6 +550,12 @@ export class MessageManager {
       this._recalculateTokenUsage();
       this._recalculateSupersededCount();
       this._recordCompression(beforeCount, beforeTokens);
+
+      // 洋葱圈 after：让 plugin 恢复上下文
+      if (typeof this._onAfterCompress === "function") {
+        const record = this._compressionHistory[this._compressionHistory.length - 1];
+        try { await this._onAfterCompress({ messages: this._messages, record }); } catch { /* non-blocking */ }
+      }
     } finally {
       if (this._compressionAbortController === controller) {
         this._compressionAbortController = null;
@@ -586,8 +601,6 @@ export class MessageManager {
         status: "info",
         payload: record,
       });
-      // 标准事件：让 plugin 层统一监听
-      this._emit("compression:applied", { payload: record });
     }
   }
 

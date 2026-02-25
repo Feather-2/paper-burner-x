@@ -341,19 +341,53 @@ export default createPlugin({
       });
     }
 
-    // ── compression:applied — 压缩后重新注入完整上下文 ──────
-    ctx.on('compression:applied', () => {
-      injectionCount = 0; // 重置计数，下次 PreLLMCall 会重新注入
-      ctx.log.info('compression detected, context injection reset');
-    });
-
-    // ── PreLLMCall Hook — 决策上下文注入 ─────────────────────
+    // ── PreCompression / PostCompression Hook — 洋葱圈压缩拦截 ──
 
     const CONTEXT_MARKER = '[context-intent]';
     const maxInjections = ctx.config.maxContextInjections || 0;
     let injectionCount = 0;
 
     if (typeof ctx.events?.registerHook === 'function') {
+      // 压缩前：注入决策摘要保护关键信息
+      ctx.events.registerHook('PreCompression', {
+        type: 'command',
+        blocking: false,
+        handler(hookCtx) {
+          const decisions = ctx.state.get('decisions') || [];
+          const excluded = ctx.state.get('excluded') || [];
+          const active = decisions.filter(d => d.status === 'decided');
+          if (!active.length && !excluded.length) return;
+
+          const messages = hookCtx?.messages;
+          if (!Array.isArray(messages)) return;
+
+          const lines = [`${CONTEXT_MARKER} Preserve during compaction:`];
+          for (const d of active.slice(0, 10)) {
+            lines.push(`- [${d.slug}] ${d.title}: ${d.choice}`);
+          }
+          if (excluded.length) {
+            for (const e of excluded.slice(0, 5)) {
+              lines.push(`- excluded: ${e.excluded} (${e.decision})`);
+            }
+          }
+          messages.push({ role: 'system', content: lines.join('\n') });
+          ctx.log.info('PreCompression: injected decision summary for preservation');
+        },
+      });
+
+      // 压缩后：重置注入计数，下次 PreLLMCall 重新注入
+      ctx.events.registerHook('PostCompression', {
+        type: 'command',
+        blocking: false,
+        handler() {
+          injectionCount = 0;
+          ctx.log.info('PostCompression: injection count reset');
+        },
+      });
+
+      ctx.log.info('Pre/PostCompression hooks registered');
+
+      // ── PreLLMCall Hook — 决策上下文注入 ─────────────────────
       ctx.events.registerHook('PreLLMCall', {
         type: 'command',
         blocking: false,
