@@ -472,6 +472,126 @@ describe('createHookMiddleware', () => {
     await mw(ctx, next); // exec 3 — should skip
     expect(handler).toHaveBeenCalledTimes(2);
   });
+
+  // --- Gate (Dim 2: How) evaluation in middleware ---
+
+  it('gate: skips hook when confirm returns false', async () => {
+    const reg = new HookRegistry();
+    const handler = vi.fn().mockResolvedValue(null);
+    reg.register('PreToolUse', {
+      type: 'command', handler,
+      gate: { type: 'llm', prompt: 'Is this safe?', fallback: 'deny' },
+    });
+    const mw = createHookMiddleware(reg);
+    const next = vi.fn().mockResolvedValue('ok');
+    const ctx = {
+      ...mockCtx('beforeTool', 'WriteFile'),
+      confirm: vi.fn().mockResolvedValue(false),
+    };
+    await mw(ctx, next);
+    expect(handler).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('gate: runs hook when confirm returns true', async () => {
+    const reg = new HookRegistry();
+    const handler = vi.fn().mockResolvedValue(null);
+    reg.register('PreToolUse', {
+      type: 'command', handler,
+      gate: { type: 'user', prompt: 'Allow?', fallback: 'deny' },
+    });
+    const mw = createHookMiddleware(reg);
+    const next = vi.fn().mockResolvedValue('ok');
+    const ctx = {
+      ...mockCtx('beforeTool', 'WriteFile'),
+      confirm: vi.fn().mockResolvedValue(true),
+    };
+    await mw(ctx, next);
+    expect(handler).toHaveBeenCalledOnce();
+    expect(ctx.confirm).toHaveBeenCalledWith('Allow?', 'user');
+  });
+
+  it('gate: fallback=deny when no confirm provider', async () => {
+    const reg = new HookRegistry();
+    const handler = vi.fn().mockResolvedValue(null);
+    reg.register('PreToolUse', {
+      type: 'command', handler,
+      gate: { type: 'llm', prompt: 'check', fallback: 'deny' },
+    });
+    const mw = createHookMiddleware(reg);
+    const next = vi.fn().mockResolvedValue('ok');
+    const ctx = mockCtx('beforeTool', 'WriteFile'); // no confirm
+    await mw(ctx, next);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('gate: fallback=allow when no confirm provider', async () => {
+    const reg = new HookRegistry();
+    const handler = vi.fn().mockResolvedValue(null);
+    reg.register('PreToolUse', {
+      type: 'command', handler,
+      gate: { type: 'agent', fallback: 'allow' },
+    });
+    const mw = createHookMiddleware(reg);
+    const next = vi.fn().mockResolvedValue('ok');
+    const ctx = mockCtx('beforeTool', 'WriteFile'); // no confirm
+    await mw(ctx, next);
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it('gate: fallback=allow on confirm error', async () => {
+    const reg = new HookRegistry();
+    const handler = vi.fn().mockResolvedValue(null);
+    reg.register('PreToolUse', {
+      type: 'command', handler,
+      gate: { type: 'llm', prompt: 'check', fallback: 'allow' },
+    });
+    const mw = createHookMiddleware(reg);
+    const next = vi.fn().mockResolvedValue('ok');
+    const ctx = {
+      ...mockCtx('beforeTool', 'WriteFile'),
+      confirm: vi.fn().mockRejectedValue(new Error('timeout')),
+    };
+    await mw(ctx, next);
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it('gate: fallback=deny on confirm error', async () => {
+    const reg = new HookRegistry();
+    const handler = vi.fn().mockResolvedValue(null);
+    reg.register('PreToolUse', {
+      type: 'command', handler,
+      gate: { type: 'llm', prompt: 'check', fallback: 'deny' },
+    });
+    const mw = createHookMiddleware(reg);
+    const next = vi.fn().mockResolvedValue('ok');
+    const ctx = {
+      ...mockCtx('beforeTool', 'WriteFile'),
+      confirm: vi.fn().mockRejectedValue(new Error('timeout')),
+    };
+    await mw(ctx, next);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('gate: emits hook:gate_denied event', async () => {
+    const reg = new HookRegistry();
+    const handler = vi.fn().mockResolvedValue(null);
+    reg.register('PreToolUse', {
+      type: 'command', handler,
+      gate: { type: 'llm', prompt: 'safe?', fallback: 'deny' },
+    });
+    const mw = createHookMiddleware(reg);
+    const next = vi.fn().mockResolvedValue('ok');
+    const ctx = {
+      ...mockCtx('beforeTool', 'WriteFile'),
+      confirm: vi.fn().mockResolvedValue(false),
+    };
+    await mw(ctx, next);
+    expect(ctx.eventBus.emit).toHaveBeenCalledWith(
+      'hook:gate_denied',
+      expect.objectContaining({ gate: 'llm', toolName: 'WriteFile' }),
+    );
+  });
 });
 
 // ── HookBuilder + hook() factory ──────────────────────────────

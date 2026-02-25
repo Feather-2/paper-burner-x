@@ -344,6 +344,29 @@ function tickLifecycle(hook) {
 }
 
 /**
+ * Evaluate soft gate constraint (Dim 2: How).
+ * Calls ctx.confirm(prompt, gateType) and returns boolean.
+ * On error/timeout, falls back to gate.fallback ('allow' | 'deny').
+ * @param {HookGate|undefined} gate
+ * @param {object} ctx
+ * @returns {Promise<boolean>} true = proceed, false = skip
+ */
+async function evaluateGate(gate, ctx) {
+  if (!gate) return true;
+  const confirm = ctx?.confirm ?? ctx?.gate;
+  if (typeof confirm !== "function") {
+    // No confirm provider → use fallback
+    return gate.fallback === "allow";
+  }
+  try {
+    const result = await confirm(gate.prompt || "", gate.type);
+    return !!result;
+  } catch {
+    return gate.fallback === "allow";
+  }
+}
+
+/**
  * Evaluate StateBus predicates against ctx.state (or ctx.stateBus).
  * Supports: exact match, $gt, $gte, $lt, $lte, $ne, $in.
  */
@@ -420,6 +443,11 @@ export function createHookMiddleware(hookRegistry) {
         if (!evaluateStatePredicate(hook.when, ctx)) continue;
         // Dim 1c: Lifecycle
         if (!checkLifecycle(hook)) continue;
+        // Dim 2: Soft gate (How)
+        if (!(await evaluateGate(hook.gate, ctx))) {
+          ctx.eventBus?.emit?.("hook:gate_denied", { stage, hookEvent, toolName, gate: hook.gate?.type });
+          continue;
+        }
 
         const blocking = hook.blocking !== false;
         try {
@@ -448,6 +476,7 @@ export function createHookMiddleware(hookRegistry) {
       if (typeof hook.handler !== "function") continue;
       if (!evaluateStatePredicate(hook.when, ctx)) continue;
       if (!checkLifecycle(hook)) continue;
+      if (!(await evaluateGate(hook.gate, ctx))) continue;
       try {
         await hook.handler({ ...ctx, result });
         tickLifecycle(hook);

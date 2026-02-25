@@ -49,7 +49,7 @@ export { ToolExecutor, createToolExecutor } from "./tools/tool-executor.js";
 // ============================================
 // Hooks (essential)
 // ============================================
-export { HookRegistry, HookType, enhanceEventBusWithHooks, getHookRegistry, createPreToolUseHook, createHookMiddleware } from "./hooks/index.js";
+export { HookRegistry, HookType, HookEvent, enhanceEventBusWithHooks, getHookRegistry, createPreToolUseHook, createHookMiddleware, HookBuilder, hook } from "./hooks/index.js";
 
 // ============================================
 // Dependency Injection (re-export from core)
