@@ -341,6 +341,12 @@ export default createPlugin({
       });
     }
 
+    // ── compression:applied — 压缩后重新注入完整上下文 ──────
+    ctx.on('compression:applied', () => {
+      injectionCount = 0; // 重置计数，下次 PreLLMCall 会重新注入
+      ctx.log.info('compression detected, context injection reset');
+    });
+
     // ── PreLLMCall Hook — 决策上下文注入 ─────────────────────
 
     const CONTEXT_MARKER = '[context-intent]';
