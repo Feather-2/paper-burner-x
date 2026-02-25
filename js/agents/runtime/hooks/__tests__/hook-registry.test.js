@@ -11,6 +11,8 @@ import {
   HookEvent,
   HookRegistry,
   createHookMiddleware,
+  HookBuilder,
+  hook,
 } from '../hook-registry.js';
 
 // ── HookType / HookEvent enums ─────────────────────────────────
@@ -109,6 +111,77 @@ describe('HookRegistry', () => {
       const def = reg.register('PreToolUse', { ...cmdHook(), blocking: false });
       expect(def.blocking).toBe(false);
     });
+
+    // --- Three-dimension fields ---
+
+    it('lifecycle fields normalized', () => {
+      const def = reg.register('PreToolUse', {
+        ...cmdHook(),
+        lifecycle: { maxExecutions: 3, scope: 'session', cooldown: 5000 },
+      });
+      expect(def.lifecycle.maxExecutions).toBe(3);
+      expect(def.lifecycle.scope).toBe('session');
+      expect(def.lifecycle.cooldown).toBe(5000);
+      expect(def._execCount).toBe(0);
+      expect(def._lastExecTime).toBe(0);
+    });
+
+    it('throws on invalid lifecycle.maxExecutions', () => {
+      expect(() => reg.register('PreToolUse', {
+        ...cmdHook(), lifecycle: { maxExecutions: -1 },
+      })).toThrow(/positive integer/);
+    });
+
+    it('throws on invalid lifecycle.scope', () => {
+      expect(() => reg.register('PreToolUse', {
+        ...cmdHook(), lifecycle: { scope: 'invalid' },
+      })).toThrow(/scope must be one of/);
+    });
+
+    it('when field preserved as-is', () => {
+      const when = { 'tokens.used': { $gt: 4000 } };
+      const def = reg.register('PreToolUse', { ...cmdHook(), when });
+      expect(def.when).toEqual(when);
+    });
+
+    it('throws on non-object when', () => {
+      expect(() => reg.register('PreToolUse', {
+        ...cmdHook(), when: 'bad',
+      })).toThrow(/when must be a plain object/);
+    });
+
+    it('gate field normalized', () => {
+      const def = reg.register('PreToolUse', {
+        ...cmdHook(), gate: { type: 'llm', prompt: 'safe?', fallback: 'allow' },
+      });
+      expect(def.gate.type).toBe('llm');
+      expect(def.gate.prompt).toBe('safe?');
+      expect(def.gate.fallback).toBe('allow');
+    });
+
+    it('throws on invalid gate.type', () => {
+      expect(() => reg.register('PreToolUse', {
+        ...cmdHook(), gate: { type: 'invalid' },
+      })).toThrow(/gate.type must be one of/);
+    });
+
+    it('protected defaults to false, authority defaults to agent', () => {
+      const def = reg.register('PreToolUse', cmdHook());
+      expect(def.protected).toBe(false);
+      expect(def.authority).toBe('agent');
+    });
+
+    it('protected=true preserved', () => {
+      const def = reg.register('PreToolUse', { ...cmdHook(), protected: true, authority: 'system' });
+      expect(def.protected).toBe(true);
+      expect(def.authority).toBe('system');
+    });
+
+    it('throws on invalid authority', () => {
+      expect(() => reg.register('PreToolUse', {
+        ...cmdHook(), authority: 'root',
+      })).toThrow(/authority must be one of/);
+    });
   });
 
   // ── list ─────────────────────────────────────────────────────
@@ -153,6 +226,62 @@ describe('HookRegistry', () => {
     });
   });
 
+  // ── disable / enable ───────────────────────────────────────────
+
+  describe('disable / enable', () => {
+    it('disabled hook excluded from match()', () => {
+      const def = reg.register('PreToolUse', cmdHook());
+      expect(reg.match('PreToolUse', 'any')).toHaveLength(1);
+      reg.disable(def);
+      expect(reg.match('PreToolUse', 'any')).toHaveLength(0);
+    });
+
+    it('enable restores disabled hook', () => {
+      const def = reg.register('PreToolUse', cmdHook());
+      reg.disable(def);
+      reg.enable(def);
+      expect(reg.match('PreToolUse', 'any')).toHaveLength(1);
+    });
+
+    it('protected hook cannot be disabled', () => {
+      const def = reg.register('PreToolUse', { ...cmdHook(), protected: true, authority: 'system' });
+      const result = reg.disable(def);
+      expect(result).toBe(false);
+      expect(reg.match('PreToolUse', 'any')).toHaveLength(1);
+    });
+  });
+
+  // ── resetLifecycle ────────────────────────────────────────────
+
+  describe('resetLifecycle', () => {
+    it('resets run-scoped hooks', () => {
+      const def = reg.register('PreToolUse', {
+        ...cmdHook(), lifecycle: { maxExecutions: 2, scope: 'run' },
+      });
+      def._execCount = 2;
+      reg.resetLifecycle('run');
+      expect(def._execCount).toBe(0);
+    });
+
+    it('does not reset session-scoped hooks on run reset', () => {
+      const def = reg.register('PreToolUse', {
+        ...cmdHook(), lifecycle: { maxExecutions: 5, scope: 'session' },
+      });
+      def._execCount = 3;
+      reg.resetLifecycle('run');
+      expect(def._execCount).toBe(3);
+    });
+
+    it('session reset also resets run-scoped hooks', () => {
+      const def = reg.register('PreToolUse', {
+        ...cmdHook(), lifecycle: { maxExecutions: 5, scope: 'run' },
+      });
+      def._execCount = 4;
+      reg.resetLifecycle('session');
+      expect(def._execCount).toBe(0);
+    });
+  });
+
   // ── match ────────────────────────────────────────────────────
 
   describe('match', () => {
@@ -194,8 +323,6 @@ describe('HookRegistry', () => {
     });
   });
 });
-
-// ── createHookMiddleware ────────────────────────────────────────
 
 describe('createHookMiddleware', () => {
   /** @returns {{ phase: string, toolName: string, eventBus: { emit: ReturnType<typeof vi.fn> } }} */
@@ -290,5 +417,166 @@ describe('createHookMiddleware', () => {
       'hook:error',
       expect.objectContaining({ error: 'boom', toolName: 'WriteFile' }),
     );
+  });
+
+  // --- Three-dimension evaluation in middleware ---
+
+  it('skips hook when state predicate fails', async () => {
+    const reg = new HookRegistry();
+    const handler = vi.fn().mockResolvedValue(null);
+    reg.register('PreToolUse', {
+      type: 'command', handler,
+      when: { 'tokens.used': { $gt: 4000 } },
+    });
+    const mw = createHookMiddleware(reg);
+    const next = vi.fn().mockResolvedValue('ok');
+    const ctx = {
+      ...mockCtx('beforeTool', 'WriteFile'),
+      state: { get: (k) => k === 'tokens.used' ? 2000 : undefined },
+    };
+    await mw(ctx, next);
+    expect(handler).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('runs hook when state predicate passes', async () => {
+    const reg = new HookRegistry();
+    const handler = vi.fn().mockResolvedValue(null);
+    reg.register('PreToolUse', {
+      type: 'command', handler,
+      when: { 'tokens.used': { $gt: 4000 } },
+    });
+    const mw = createHookMiddleware(reg);
+    const next = vi.fn().mockResolvedValue('ok');
+    const ctx = {
+      ...mockCtx('beforeTool', 'WriteFile'),
+      state: { get: (k) => k === 'tokens.used' ? 5000 : undefined },
+    };
+    await mw(ctx, next);
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it('lifecycle maxExecutions stops after N runs', async () => {
+    const reg = new HookRegistry();
+    const handler = vi.fn().mockResolvedValue(null);
+    reg.register('PreToolUse', {
+      type: 'command', handler,
+      lifecycle: { maxExecutions: 2 },
+    });
+    const mw = createHookMiddleware(reg);
+    const next = vi.fn().mockResolvedValue('ok');
+    const ctx = mockCtx('beforeTool', 'WriteFile');
+
+    await mw(ctx, next); // exec 1
+    await mw(ctx, next); // exec 2
+    await mw(ctx, next); // exec 3 — should skip
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ── HookBuilder + hook() factory ──────────────────────────────
+
+describe('hook() factory', () => {
+  let reg;
+  beforeEach(() => { reg = new HookRegistry(); });
+
+  it('Level 0: hook(reg, event, fn) registers directly', () => {
+    const fn = vi.fn();
+    const def = hook(reg, 'PreToolUse', fn);
+    expect(def.type).toBe('command');
+    expect(def.handler).toBe(fn);
+    expect(reg.list('PreToolUse')).toHaveLength(1);
+  });
+
+  it('Level 1: hook(reg, event, opts, fn) with match', () => {
+    const fn = vi.fn();
+    const def = hook(reg, 'PreToolUse', { match: 'bash_*' }, fn);
+    expect(def.tools).toEqual(['bash_*']);
+    expect(def.handler).toBe(fn);
+  });
+
+  it('Level 1: opts.times sets lifecycle', () => {
+    const fn = vi.fn();
+    const def = hook(reg, 'PreToolUse', { times: 3 }, fn);
+    expect(def.lifecycle.maxExecutions).toBe(3);
+  });
+
+  it('Level 1: opts.protected sets authority', () => {
+    const fn = vi.fn();
+    const def = hook(reg, 'PreToolUse', { protected: true }, fn);
+    expect(def.protected).toBe(true);
+    expect(def.authority).toBe('system');
+  });
+
+  it('throws on non-HookRegistry first arg', () => {
+    expect(() => hook({}, 'PreToolUse', vi.fn())).toThrow(/HookRegistry/);
+  });
+});
+
+describe('HookBuilder (Level 2 chain)', () => {
+  let reg;
+  beforeEach(() => { reg = new HookRegistry(); });
+
+  it('returns HookBuilder when no handler arg', () => {
+    const builder = hook(reg, 'PreToolUse');
+    expect(builder).toBeInstanceOf(HookBuilder);
+  });
+
+  it('.match().do() registers with tool pattern', () => {
+    const fn = vi.fn();
+    const def = hook(reg, 'PreToolUse').match('bash_*').do(fn);
+    expect(def.tools).toEqual(['bash_*']);
+    expect(reg.list('PreToolUse')).toHaveLength(1);
+  });
+
+  it('.when().do() registers with state predicate', () => {
+    const fn = vi.fn();
+    const def = hook(reg, 'PreToolUse')
+      .when({ 'tokens.used': { $gt: 4000 } })
+      .do(fn);
+    expect(def.when).toEqual({ 'tokens.used': { $gt: 4000 } });
+  });
+
+  it('.times().cooldown().scope() sets lifecycle', () => {
+    const fn = vi.fn();
+    const def = hook(reg, 'PreToolUse')
+      .times(3)
+      .cooldown(5000)
+      .scope('session')
+      .do(fn);
+    expect(def.lifecycle.maxExecutions).toBe(3);
+    expect(def.lifecycle.cooldown).toBe(5000);
+    expect(def.lifecycle.scope).toBe('session');
+  });
+
+  it('.protect() sets protected + system authority', () => {
+    const fn = vi.fn();
+    const def = hook(reg, 'PreToolUse').protect().do(fn);
+    expect(def.protected).toBe(true);
+    expect(def.authority).toBe('system');
+  });
+
+  it('.gate() sets soft constraint', () => {
+    const fn = vi.fn();
+    const def = hook(reg, 'PreToolUse')
+      .gate('llm', 'Is this safe?')
+      .do(fn);
+    expect(def.gate.type).toBe('llm');
+    expect(def.gate.prompt).toBe('Is this safe?');
+  });
+
+  it('full chain works end-to-end', () => {
+    const fn = vi.fn();
+    const def = hook(reg, 'PreToolUse')
+      .match('bash_*')
+      .when({ 'agent.phase': 'execution' })
+      .times(1)
+      .protect()
+      .do(fn);
+    expect(def.tools).toEqual(['bash_*']);
+    expect(def.when).toEqual({ 'agent.phase': 'execution' });
+    expect(def.lifecycle.maxExecutions).toBe(1);
+    expect(def.protected).toBe(true);
+    expect(def.handler).toBe(fn);
   });
 });

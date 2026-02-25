@@ -29,6 +29,23 @@ export const HookEvent = Object.freeze({
 
 /** @type {Set<string>} */
 const VALID_HOOK_TYPES = new Set(Object.values(HookType));
+const VALID_SCOPES = new Set(["run", "session", "permanent"]);
+const VALID_GATE_TYPES = new Set(["llm", "user", "agent"]);
+const VALID_AUTHORITIES = new Set(["system", "config", "agent"]);
+
+/**
+ * @typedef {object} HookLifecycle
+ * @property {number=} maxExecutions - Max times this hook can fire (default Infinity)
+ * @property {'run'|'session'|'permanent'=} scope - Lifecycle scope (default 'run')
+ * @property {number=} cooldown - Min ms between executions (default 0)
+ */
+
+/**
+ * @typedef {object} HookGate
+ * @property {'llm'|'user'|'agent'} type - Soft constraint evaluator
+ * @property {string=} prompt - Prompt for llm/agent gate
+ * @property {'allow'|'deny'=} fallback - Default on timeout (default 'deny')
+ */
 
 /**
  * @typedef {object} HookDefinition
@@ -43,6 +60,11 @@ const VALID_HOOK_TYPES = new Set(Object.values(HookType));
  * @property {string=} usage - ModelRouter usage (prompt hooks)
  * @property {string=} agentType - Subagent type (agent hooks)
  * @property {string=} modelTier - fast/normal/advanced (agent hooks)
+ * @property {Record<string, any>=} when - StateBus predicates (AND logic)
+ * @property {HookLifecycle=} lifecycle - Execution history constraints
+ * @property {HookGate=} gate - Soft constraint gate (async)
+ * @property {boolean=} protected - If true, Agent cannot disable/remove this hook
+ * @property {'system'|'config'|'agent'=} authority - Who can control this hook (default 'agent')
  */
 
 function normalizeToolPatterns(input) {
@@ -130,6 +152,59 @@ function normalizeHookDefinition(def) {
     if (modelTier) normalized.modelTier = modelTier;
   }
 
+  // --- When: State predicates ---
+  if (def.when != null) {
+    if (!isPlainObject(def.when)) throw new TypeError("HookDefinition.when must be a plain object");
+    normalized.when = def.when;
+  }
+
+  // --- When: Lifecycle ---
+  if (def.lifecycle != null) {
+    if (!isPlainObject(def.lifecycle)) throw new TypeError("HookDefinition.lifecycle must be a plain object");
+    const lc = {};
+    if (def.lifecycle.maxExecutions != null) {
+      const n = Number(def.lifecycle.maxExecutions);
+      if (!Number.isFinite(n) || n < 1) throw new TypeError("lifecycle.maxExecutions must be a positive integer");
+      lc.maxExecutions = Math.floor(n);
+    }
+    if (def.lifecycle.scope != null) {
+      const s = toNonEmptyString(def.lifecycle.scope);
+      if (!s || !VALID_SCOPES.has(s)) throw new TypeError(`lifecycle.scope must be one of: ${[...VALID_SCOPES].join(", ")}`);
+      lc.scope = s;
+    }
+    if (def.lifecycle.cooldown != null) {
+      const cd = Number(def.lifecycle.cooldown);
+      if (!Number.isFinite(cd) || cd < 0) throw new TypeError("lifecycle.cooldown must be a non-negative number");
+      lc.cooldown = cd;
+    }
+    normalized.lifecycle = lc;
+    // Runtime state for lifecycle tracking
+    normalized._execCount = 0;
+    normalized._lastExecTime = 0;
+  }
+
+  // --- How: Soft gate ---
+  if (def.gate != null) {
+    if (!isPlainObject(def.gate)) throw new TypeError("HookDefinition.gate must be a plain object");
+    const gt = toNonEmptyString(def.gate.type);
+    if (!gt || !VALID_GATE_TYPES.has(gt)) throw new TypeError(`gate.type must be one of: ${[...VALID_GATE_TYPES].join(", ")}`);
+    normalized.gate = { type: gt };
+    const gp = toNonEmptyString(def.gate.prompt);
+    if (gp) normalized.gate.prompt = gp;
+    const fb = toNonEmptyString(def.gate.fallback) || "deny";
+    normalized.gate.fallback = fb === "allow" ? "allow" : "deny";
+  }
+
+  // --- Who: Mutability ---
+  normalized.protected = def.protected === true;
+  if (def.authority != null) {
+    const auth = toNonEmptyString(def.authority);
+    if (!auth || !VALID_AUTHORITIES.has(auth)) throw new TypeError(`authority must be one of: ${[...VALID_AUTHORITIES].join(", ")}`);
+    normalized.authority = auth;
+  } else {
+    normalized.authority = "agent";
+  }
+
   return normalized;
 }
 
@@ -137,6 +212,8 @@ export class HookRegistry {
   constructor() {
     /** @type {Map<string, HookDefinition[]>} */
     this._hooksByEvent = new Map();
+    /** @type {Set<HookDefinition>} disabled hooks (agent-level only) */
+    this._disabled = new Set();
   }
 
   /**
@@ -186,7 +263,43 @@ export class HookRegistry {
   match(eventName, toolName) {
     const hooks = this.list(eventName);
     const tool = toNonEmptyString(toolName) || "";
-    return hooks.filter((h) => matchesTool(h, tool));
+    return hooks.filter((h) => !this._disabled.has(h) && matchesTool(h, tool));
+  }
+
+  /**
+   * Disable a hook at runtime. Protected hooks cannot be disabled.
+   * @param {HookDefinition} hook
+   * @returns {boolean} true if disabled, false if protected
+   */
+  disable(hook) {
+    if (hook?.protected) return false;
+    this._disabled.add(hook);
+    return true;
+  }
+
+  /**
+   * Re-enable a previously disabled hook.
+   * @param {HookDefinition} hook
+   */
+  enable(hook) {
+    this._disabled.delete(hook);
+  }
+
+  /**
+   * Reset lifecycle counters for all hooks (e.g. on new run).
+   * @param {'run'|'session'=} scope - Only reset hooks with this scope (default: 'run')
+   */
+  resetLifecycle(scope = "run") {
+    for (const hooks of this._hooksByEvent.values()) {
+      for (const h of hooks) {
+        if (!h.lifecycle) continue;
+        const s = h.lifecycle.scope || "run";
+        if (s === scope || (scope === "session" && s === "run")) {
+          h._execCount = 0;
+          h._lastExecTime = 0;
+        }
+      }
+    }
   }
 }
 
@@ -209,6 +322,56 @@ const STAGE_TO_HOOK_EVENT = Object.freeze({
 });
 
 const BEFORE_STAGES = new Set(["beforeAgent", "beforeTool", "beforeModel", "beforeCompression"]);
+
+// ===== Three-dimension evaluation helpers =====
+
+/** Check lifecycle constraints (maxExecutions + cooldown). Returns false if hook should skip. */
+function checkLifecycle(hook) {
+  const lc = hook.lifecycle;
+  if (!lc) return true;
+  if (lc.maxExecutions != null && hook._execCount >= lc.maxExecutions) return false;
+  if (lc.cooldown > 0 && hook._lastExecTime > 0) {
+    if (Date.now() - hook._lastExecTime < lc.cooldown) return false;
+  }
+  return true;
+}
+
+/** Record a lifecycle execution tick. */
+function tickLifecycle(hook) {
+  if (!hook.lifecycle) return;
+  hook._execCount = (hook._execCount || 0) + 1;
+  hook._lastExecTime = Date.now();
+}
+
+/**
+ * Evaluate StateBus predicates against ctx.state (or ctx.stateBus).
+ * Supports: exact match, $gt, $gte, $lt, $lte, $ne, $in.
+ */
+function evaluateStatePredicate(when, ctx) {
+  if (!when) return true;
+  const state = ctx?.state ?? ctx?.stateBus;
+  if (!state) return true; // no state bus → skip predicate (permissive)
+  const get = typeof state.get === "function" ? (k) => state.get(k) : (k) => state[k];
+  for (const [key, expected] of Object.entries(when)) {
+    const actual = get(key);
+    if (isPlainObject(expected)) {
+      for (const [op, val] of Object.entries(expected)) {
+        switch (op) {
+          case "$gt":  if (!(actual > val)) return false; break;
+          case "$gte": if (!(actual >= val)) return false; break;
+          case "$lt":  if (!(actual < val)) return false; break;
+          case "$lte": if (!(actual <= val)) return false; break;
+          case "$ne":  if (actual === val) return false; break;
+          case "$in":  if (!Array.isArray(val) || !val.includes(actual)) return false; break;
+          default: break; // unknown op → ignore (permissive)
+        }
+      }
+    } else if (actual !== expected) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /**
  * Convert a HookRegistry into a MiddlewareChain-compatible middleware function.
@@ -252,9 +415,17 @@ export function createHookMiddleware(hookRegistry) {
     if (isBefore) {
       for (const hook of hooks) {
         if (typeof hook.handler !== "function") continue;
+        // --- Three-dimension evaluation ---
+        // Dim 1b: State predicate
+        if (!evaluateStatePredicate(hook.when, ctx)) continue;
+        // Dim 1c: Lifecycle
+        if (!checkLifecycle(hook)) continue;
+
         const blocking = hook.blocking !== false;
         try {
           const result = await hook.handler(ctx);
+          // Tick lifecycle after successful execution
+          tickLifecycle(hook);
           if (result && result.skip && blocking) {
             const reason = toNonEmptyString(result.reason) || "Hook denied";
             ctx.eventBus?.emit?.("hook:denied", { stage, hookEvent, toolName, reason });
@@ -275,8 +446,11 @@ export function createHookMiddleware(hookRegistry) {
     const result = await next();
     for (const hook of hooks) {
       if (typeof hook.handler !== "function") continue;
+      if (!evaluateStatePredicate(hook.when, ctx)) continue;
+      if (!checkLifecycle(hook)) continue;
       try {
         await hook.handler({ ...ctx, result });
+        tickLifecycle(hook);
       } catch (err) {
         ctx.eventBus?.emit?.("hook:error", {
           stage, hookEvent, toolName,
@@ -289,4 +463,99 @@ export function createHookMiddleware(hookRegistry) {
 }
 
 export default HookRegistry;
+
+// ===== HookBuilder — fluent API =====
+
+/**
+ * Fluent builder for hook registration.
+ * Usage: hook('PreToolUse').match('bash_*').times(3).do(ctx => { ... })
+ */
+export class HookBuilder {
+  /**
+   * @param {string} eventName
+   * @param {HookRegistry} registry
+   */
+  constructor(eventName, registry) {
+    this._event = eventName;
+    this._registry = registry;
+    this._def = { type: "command" };
+  }
+
+  /** @param {string|string[]} pattern */
+  match(pattern) { this._def.tools = Array.isArray(pattern) ? pattern : [pattern]; return this; }
+
+  /** @param {Record<string, any>} predicate */
+  when(predicate) { this._def.when = predicate; return this; }
+
+  /** @param {number} n */
+  times(n) {
+    this._def.lifecycle = { ...this._def.lifecycle, maxExecutions: n };
+    return this;
+  }
+
+  /** @param {number} ms */
+  cooldown(ms) {
+    this._def.lifecycle = { ...this._def.lifecycle, cooldown: ms };
+    return this;
+  }
+
+  /** @param {'run'|'session'|'permanent'} s */
+  scope(s) {
+    this._def.lifecycle = { ...this._def.lifecycle, scope: s };
+    return this;
+  }
+
+  /** @param {'llm'|'user'|'agent'} type @param {string=} prompt */
+  gate(type, prompt) {
+    this._def.gate = { type };
+    if (prompt) this._def.gate.prompt = prompt;
+    return this;
+  }
+
+  protect() { this._def.protected = true; this._def.authority = "system"; return this; }
+
+  /**
+   * Terminal method — registers the hook.
+   * @param {(ctx: object) => Promise<any>} handler
+   * @returns {HookDefinition}
+   */
+  do(handler) {
+    this._def.handler = handler;
+    return this._registry.register(this._event, this._def);
+  }
+}
+
+/**
+ * Progressive hook registration API.
+ *
+ * Level 0: hook(registry, 'PreToolUse', handler)
+ * Level 1: hook(registry, 'PreToolUse', { match: 'bash_*' }, handler)
+ * Level 2: hook(registry, 'PreToolUse').match('bash_*').times(3).do(handler)
+ *
+ * @param {HookRegistry} registry
+ * @param {string} eventName
+ * @param {object|Function=} optsOrHandler
+ * @param {Function=} handler
+ * @returns {HookBuilder|HookDefinition}
+ */
+export function hook(registry, eventName, optsOrHandler, handler) {
+  if (!(registry instanceof HookRegistry)) {
+    throw new TypeError("hook(): first argument must be a HookRegistry instance");
+  }
+  // Level 0: hook(reg, event, fn)
+  if (typeof optsOrHandler === "function") {
+    return registry.register(eventName, { type: "command", handler: optsOrHandler });
+  }
+  // Level 1: hook(reg, event, { match, ... }, fn)
+  if (isPlainObject(optsOrHandler) && typeof handler === "function") {
+    const def = { type: "command", handler };
+    if (optsOrHandler.match) def.tools = Array.isArray(optsOrHandler.match) ? optsOrHandler.match : [optsOrHandler.match];
+    if (optsOrHandler.when) def.when = optsOrHandler.when;
+    if (optsOrHandler.times) def.lifecycle = { maxExecutions: optsOrHandler.times };
+    if (optsOrHandler.protected) { def.protected = true; def.authority = "system"; }
+    return registry.register(eventName, def);
+  }
+  // Level 2: hook(reg, event) → builder
+  return new HookBuilder(eventName, registry);
+}
 
