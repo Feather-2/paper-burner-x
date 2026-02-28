@@ -48,12 +48,16 @@ export default createPlugin({
     autoLoad: true,
     /** 自动在 agent:completed 时 fold */
     autoFold: true,
+    /** 自动从运行时事件提取 atoms/signals/excluded */
+    autoExtract: true,
     /** flush 策略: eager | batched */
     flushPolicy: 'eager',
     /** batched 模式下的 dirty 阈值 */
     flushThreshold: 5,
     /** PreLLMCall 注入最大次数 (0=无限) */
     maxContextInjections: 1,
+    /** PreLLMCall 注入 token 预算 (0=固定上限模式) */
+    contextTokenBudget: 400,
   },
 
   async install(ctx) {
@@ -341,10 +345,101 @@ export default createPlugin({
       });
     }
 
+    // ── EventBus 写方向自动提取 (Write-Side Wiring) ────────────
+
+    if (ctx.config.autoExtract) {
+      // 1. compression:decisions → writeAtom for each decision
+      ctx.on('compression:decisions', async (evt) => {
+        try {
+          const payload = evt?.payload || evt;
+          const decisions = Array.isArray(payload?.decisions) ? payload.decisions : [];
+          const stageKey = payload?.stageKey || 'js/agents';
+          for (const decision of decisions.slice(0, 20)) {
+            const text = typeof decision === 'string' ? decision : String(decision);
+            if (!text) continue;
+            const hash = await contentHash(text);
+            await ctx.services.call('context', 'writeAtom', [{
+              atom_key: `auto:compression:${hash.slice(0, 8)}`,
+              content: text,
+              perspective: 'architecture',
+              related_modules: [stageKey],
+              source: 'compression:decisions',
+              status: 'draft',
+            }]).catch(e => ctx.log.warn(`auto-extract writeAtom failed: ${e.message}`));
+          }
+        } catch (e) {
+          ctx.log.warn(`compression:decisions handler error: ${e.message}`);
+        }
+      });
+
+      // 2. memory:archived → writeAtom with summary
+      ctx.on('memory:archived', async (evt) => {
+        try {
+          const payload = evt?.payload || evt;
+          const summary = payload?.summary;
+          if (!summary || typeof summary !== 'string') return;
+          const stageKey = payload?.stageKey || 'js/agents';
+          const hash = await contentHash(summary);
+          await ctx.services.call('context', 'writeAtom', [{
+            atom_key: `auto:archive:${hash.slice(0, 8)}`,
+            content: summary,
+            perspective: 'architecture',
+            related_modules: [stageKey],
+            source: 'memory:archived',
+            status: 'draft',
+          }]);
+        } catch (e) {
+          ctx.log.warn(`memory:archived handler error: ${e.message}`);
+        }
+      });
+
+      // 3. tool:denied → appendJsonl to excluded
+      ctx.on('tool:denied', async (evt) => {
+        try {
+          const payload = evt?.payload || evt;
+          const tool = payload?.tool;
+          if (!tool) return;
+          await appendJsonl(vfs, EXCL_PATH, {
+            v: 1,
+            type: 'excluded',
+            excluded: `tool:${tool}`,
+            reason: payload?.reason || 'denied',
+            decision: 'tool-policy',
+            date: today(),
+          });
+        } catch (e) {
+          ctx.log.warn(`tool:denied handler error: ${e.message}`);
+        }
+      });
+
+      // 4. memory:recalled → signal with type 'referenced_by'
+      ctx.on('memory:recalled', async (evt) => {
+        try {
+          const payload = evt?.payload || evt;
+          const atomId = payload?.atomId || payload?.query || null;
+          if (!atomId) return;
+          await ctx.services.call('context', 'signal', [{
+            type: 'referenced_by',
+            atom_id: String(atomId),
+            action: payload?.action || 'unknown',
+            date: today(),
+          }]);
+        } catch (e) {
+          ctx.log.warn(`memory:recalled handler error: ${e.message}`);
+        }
+      });
+
+      ctx.log.info('auto-extract listeners registered (compression:decisions, memory:archived, tool:denied, memory:recalled)');
+    }
+
     // ── PreCompression / PostCompression Hook — 洋葱圈压缩拦截 ──
 
     const CONTEXT_MARKER = '[context-intent]';
     const maxInjections = ctx.config.maxContextInjections || 0;
+    const tokenBudget = typeof ctx.config.contextTokenBudget === 'number' && ctx.config.contextTokenBudget > 0
+      ? ctx.config.contextTokenBudget : 0; // 0 = legacy fixed-limit mode
+    /** @param {string} s @returns {number} */
+    const _estTokens = (s) => Math.ceil((s || '').length / 4);
     let injectionCount = 0;
 
     if (typeof ctx.events?.registerHook === 'function') {
@@ -412,21 +507,50 @@ export default createPlugin({
             }
           }
 
-          // 构造精简注入文本
-          const lines = [`${CONTEXT_MARKER} Active decisions:`];
-          for (const d of active.slice(0, 8)) {
-            lines.push(`- [${d.slug}] ${d.title}: ${d.choice}`);
+          // 构造精简注入文本 — token 预算驱动渐进披露
+          // 按最近决策时间排序（最新优先）
+          const sorted = [...active].sort((a, b) => {
+            const aT = typeof a?.ts === 'number' ? a.ts : 0;
+            const bT = typeof b?.ts === 'number' ? b.ts : 0;
+            return bT - aT;
+          });
+
+          const header = `${CONTEXT_MARKER} Active decisions:`;
+          const footer = 'For full context: context.load(<module>) | context.fold() | context.decide()';
+          let usedTokens = _estTokens(header) + _estTokens(footer) + 2;
+
+          const lines = [header];
+          let decisionCount = 0;
+          const maxDec = tokenBudget > 0 ? sorted.length : 8; // legacy: cap at 8
+          for (const d of sorted) {
+            if (decisionCount >= maxDec) break;
+            const line = `- [${d.slug}] ${d.title}: ${d.choice}`;
+            const cost = _estTokens(line);
+            if (tokenBudget > 0 && usedTokens + cost > tokenBudget) break;
+            lines.push(line);
+            usedTokens += cost;
+            decisionCount++;
           }
-          if (active.length > 8) {
-            lines.push(`  ... +${active.length - 8} more`);
+          if (decisionCount < active.length) {
+            lines.push(`  ... +${active.length - decisionCount} more`);
           }
           if (excluded.length) {
-            lines.push('Excluded patterns:');
-            for (const e of excluded.slice(0, 5)) {
-              lines.push(`- avoid: ${e.excluded} (see ${e.decision})`);
+            const exclHeader = 'Excluded patterns:';
+            usedTokens += _estTokens(exclHeader);
+            lines.push(exclHeader);
+            const maxExcl = tokenBudget > 0 ? excluded.length : 5;
+            let exclCount = 0;
+            for (const e of excluded) {
+              if (exclCount >= maxExcl) break;
+              const line = `- avoid: ${e.excluded} (see ${e.decision})`;
+              const cost = _estTokens(line);
+              if (tokenBudget > 0 && usedTokens + cost > tokenBudget) break;
+              lines.push(line);
+              usedTokens += cost;
+              exclCount++;
             }
           }
-          lines.push('For full context: context.load(<module>) | context.fold() | context.decide()');
+          lines.push(footer);
 
           // 插入到最后一条 user/tool 消息之前
           let insertIdx = messages.length;

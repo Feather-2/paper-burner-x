@@ -16,6 +16,7 @@ import {
   RouterEvents,
   WatchdogEvents,
   CicadaEvents,
+  OrchestratorEvents,
   DeepSearchEvents,
   DesignEvents,
   IngestEvents,
@@ -85,6 +86,16 @@ const EXPECTED_WATCHDOG_EVENTS = {
 const EXPECTED_CICADA_EVENTS = {
   LAYER_COMPLETED: 'cicada:layer:completed',
   SHED_COMPLETED: 'cicada:shed:completed',
+  DECISIONS_EXTRACTED: 'compression:decisions',
+};
+
+const EXPECTED_ORCHESTRATOR_EVENTS = {
+  QUEUE_PRESSURE: 'orchestrator:queue:pressure',
+  CONCURRENCY_WAIT: 'orchestrator:concurrency:wait',
+  PARALLEL_BEGIN: 'parallel:begin',
+  PARALLEL_END: 'parallel:end',
+  GRAPH_BEGIN: 'graph:begin',
+  GRAPH_END: 'graph:end',
 };
 
 const EXPECTED_DEEPSEARCH_EVENTS = {
@@ -207,6 +218,7 @@ const enumCases = [
   { name: 'RouterEvents', value: RouterEvents, expected: EXPECTED_ROUTER_EVENTS },
   { name: 'WatchdogEvents', value: WatchdogEvents, expected: EXPECTED_WATCHDOG_EVENTS },
   { name: 'CicadaEvents', value: CicadaEvents, expected: EXPECTED_CICADA_EVENTS },
+  { name: 'OrchestratorEvents', value: OrchestratorEvents, expected: EXPECTED_ORCHESTRATOR_EVENTS },
   { name: 'DeepSearchEvents', value: DeepSearchEvents, expected: EXPECTED_DEEPSEARCH_EVENTS },
   { name: 'DesignEvents', value: DesignEvents, expected: EXPECTED_DESIGN_EVENTS },
   { name: 'IngestEvents', value: IngestEvents, expected: EXPECTED_INGEST_EVENTS },

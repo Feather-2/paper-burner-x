@@ -16,9 +16,10 @@
  * 创建 Recall 工具 Handler
  * @param {Object} options
  * @param {CicadaCompressor} options.compressor - Cicada 实例，用于访问归档
+ * @param {{ emit?: (name: string, payload: unknown) => void }} [options.eventBus] - EventBus for recall events
  * @returns {Function}
  */
-export function createRecallTool({ compressor }) {
+export function createRecallTool({ compressor, eventBus }) {
     if (!compressor) {
         throw new Error("RecallTool requires a CicadaCompressor instance");
     }
@@ -57,6 +58,9 @@ export function createRecallTool({ compressor }) {
                     const list = results.map(a =>
                         `ID: ${a.id} | Summary: ${a.summary}`
                     ).join("\n");
+                    if (eventBus && typeof eventBus.emit === "function") {
+                        eventBus.emit("memory:recalled", { query, action: "search", resultCount: results.length });
+                    }
                     return { ok: true, data: `Search results for "${query}":\n${list}` };
                 }
 
@@ -65,6 +69,9 @@ export function createRecallTool({ compressor }) {
                     const snapshot = await compressor.restore(archive_id);
                     if (!snapshot) {
                         return { ok: false, error: `Memory with ID "${archive_id}" not found.` };
+                    }
+                    if (eventBus && typeof eventBus.emit === "function") {
+                        eventBus.emit("memory:recalled", { atomId: archive_id, action: "get" });
                     }
                     // 返回完整上下文细节
                     return { ok: true, data: snapshot.context || snapshot };

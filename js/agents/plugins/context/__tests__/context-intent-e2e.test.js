@@ -13,6 +13,7 @@ import { EventBus } from '../../../core/event-bus.js';
 import { StateBus } from '../../../core/state-bus.js';
 import { ServiceBus } from '../../../core/service-bus.js';
 import { PluginManager, createPlugin } from '../../../core/plugin.js';
+import { enhanceEventBusWithHooks } from '../../../runtime/hooks/event-bus-hooks.js';
 import contextIntentPlugin from '../index.js';
 
 // ── Mock VFS ────────────────────────────────────────────────────
@@ -51,6 +52,7 @@ function createMemoryVFS() {
 
 function createTestKernel() {
   const events = new EventBus();
+  enhanceEventBusWithHooks(events); // Enable hook support
   const state = new StateBus({ events });
   const services = new ServiceBus({ events });
 
@@ -508,6 +510,236 @@ describe('context-intent Plugin E2E', () => {
       assert.strictEqual(loaded.decisions.length, 1);
       assert.strictEqual(loaded.atoms[0].atom_key, 'e2e-atom');
       assert.strictEqual(loaded.decisions[0].slug, 'e2e-decision');
+    });
+  });
+
+  // ── 11. autoExtract 事件接线 ────────────────────────────────
+
+  describe('autoExtract event wiring', () => {
+    beforeEach(() => {
+      env = createTestKernel();
+    });
+
+    it('should write atom on compression:decisions event', async () => {
+      await installPlugin(env.pm, { autoExtract: true });
+      const ctx = await getContextService(env.services);
+
+      env.events.emit('compression:decisions', {
+        payload: { decisions: ['Use Lamport Clock'], stageKey: 'js/agents/core' },
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const loaded = await ctx.load('js/agents/core');
+      assert.ok(loaded.atoms.length > 0, 'should have extracted atoms');
+      assert.ok(loaded.atoms.some(a => a.content.includes('Lamport Clock')));
+    });
+
+    it('should write atom on memory:archived event', async () => {
+      await installPlugin(env.pm, { autoExtract: true });
+      const ctx = await getContextService(env.services);
+
+      env.events.emit('memory:archived', {
+        id: 'test-1',
+        stageKey: 'js/agents',
+        summary: 'Test archived memory',
+        ts: Date.now(),
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const loaded = await ctx.load('js/agents');
+      assert.ok(loaded.atoms.length > 0, 'should have extracted atoms from archive');
+    });
+
+    it('should write excluded on tool:denied event', async () => {
+      await installPlugin(env.pm, { autoExtract: true });
+
+      env.events.emit('tool:denied', {
+        tool: 'bash',
+        reason: 'dangerous command',
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const excludedPath = '.context/intent/excluded/excluded.jsonl';
+      assert.ok(env.vfs._files.has(excludedPath), 'excluded file should exist');
+      const content = env.vfs._files.get(excludedPath);
+      assert.ok(content.includes('tool:bash'), 'should contain tool exclusion');
+    });
+
+    it('should write signal on memory:recalled event', async () => {
+      await installPlugin(env.pm, { autoExtract: true });
+
+      env.events.emit('memory:recalled', {
+        atomId: 'archive-42',
+        action: 'get',
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const signalsPath = '.context/intent/signals/signals.jsonl';
+      assert.ok(env.vfs._files.has(signalsPath), 'signals file should exist');
+      const content = env.vfs._files.get(signalsPath);
+      assert.ok(content.includes('referenced_by'), 'should contain signal');
+    });
+
+    it('should not extract when autoExtract is false', async () => {
+      await installPlugin(env.pm, { autoExtract: false });
+      const ctx = await getContextService(env.services);
+
+      env.events.emit('compression:decisions', {
+        payload: { decisions: ['Use Lamport Clock'], stageKey: 'js/agents/core' },
+      });
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const loaded = await ctx.load('js/agents/core');
+      assert.strictEqual(loaded.atoms.length, 0, 'should not extract when disabled');
+    });
+  });
+
+  // ── 12. PreLLMCall progressive disclosure with token budget ────
+
+  describe('PreLLMCall progressive disclosure with token budget', () => {
+    beforeEach(() => {
+      env = createTestKernel();
+    });
+
+    it('should respect token budget and not inject all decisions if they exceed budget', async () => {
+      await installPlugin(env.pm, { contextTokenBudget: 400 });
+      const ctx = await getContextService(env.services);
+
+      // Create multiple decisions with very long text to exceed 400 token budget
+      // Each decision should be ~200 tokens to ensure 3 decisions exceed budget
+      const longText = 'This is a very long text that will consume many tokens when injected into the context. '.repeat(10);
+      await ctx.decide({
+        op: 'upsert', slug: 'decision-1',
+        title: 'First Decision: ' + longText,
+        choice: 'Choice A: ' + longText,
+        modules: ['js/agents'], date: '2024-01-01',
+      });
+      await ctx.decide({
+        op: 'upsert', slug: 'decision-2',
+        title: 'Second Decision: ' + longText,
+        choice: 'Choice B: ' + longText,
+        modules: ['js/agents'], date: '2024-01-02',
+      });
+      await ctx.decide({
+        op: 'upsert', slug: 'decision-3',
+        title: 'Third Decision: ' + longText,
+        choice: 'Choice C: ' + longText,
+        modules: ['js/agents'], date: '2024-01-03',
+      });
+
+      // Fold to get decisions into state
+      await ctx.fold();
+
+      // Manually trigger PreLLMCall hook
+      const messages = [];
+      const hookCtx = { messages };
+
+      // Get the hook handler from the events system using getHooks API
+      if (typeof env.events.getHooks === 'function') {
+        const hooks = env.events.getHooks('PreLLMCall');
+        for (const hook of hooks) {
+          if (hook && typeof hook.handler === 'function') {
+            hook.handler(hookCtx);
+          }
+        }
+      }
+
+      // Verify that context was injected but respects token budget
+      assert.ok(messages.length > 0, 'should inject context message');
+      const contextMsg = messages.find(m => m.role === 'system' && m.content.includes('[context-intent]'));
+      assert.ok(contextMsg, 'should have context message');
+
+      // With 400 token budget, not all 3 decisions should be included
+      const content = contextMsg.content;
+      const decisionCount = (content.match(/\[decision-/g) || []).length;
+      assert.ok(decisionCount < 3, `should not inject all decisions due to budget (found ${decisionCount})`);
+    });
+
+    it('should sort decisions by recency (newest first)', async () => {
+      await installPlugin(env.pm, { contextTokenBudget: 2000 });
+      const ctx = await getContextService(env.services);
+
+      // Create decisions with explicit timestamps
+      await ctx.decide({
+        op: 'upsert', slug: 'old-decision',
+        title: 'Old', choice: 'A', modules: ['js/agents'], date: '2024-01-01',
+      });
+      await ctx.decide({
+        op: 'upsert', slug: 'new-decision',
+        title: 'New', choice: 'B', modules: ['js/agents'], date: '2024-12-31',
+      });
+      await ctx.decide({
+        op: 'upsert', slug: 'mid-decision',
+        title: 'Mid', choice: 'C', modules: ['js/agents'], date: '2024-06-15',
+      });
+
+      await ctx.fold();
+
+      const messages = [];
+      const hookCtx = { messages };
+
+      if (typeof env.events.getHooks === 'function') {
+        const hooks = env.events.getHooks('PreLLMCall');
+        for (const hook of hooks) {
+          if (hook && typeof hook.handler === 'function') {
+            hook.handler(hookCtx);
+          }
+        }
+      }
+
+      const contextMsg = messages.find(m => m.role === 'system' && m.content.includes('[context-intent]'));
+      assert.ok(contextMsg, 'should have context message');
+
+      const content = contextMsg.content;
+      const newIdx = content.indexOf('[new-decision]');
+      const midIdx = content.indexOf('[mid-decision]');
+      const oldIdx = content.indexOf('[old-decision]');
+
+      // Newest should appear first
+      assert.ok(newIdx < midIdx, 'newest decision should appear before mid');
+      assert.ok(midIdx < oldIdx, 'mid decision should appear before oldest');
+    });
+
+    it('should fall back to legacy mode (max 8 decisions) when contextTokenBudget is 0', async () => {
+      await installPlugin(env.pm, { contextTokenBudget: 0 });
+      const ctx = await getContextService(env.services);
+
+      // Create 10 decisions
+      for (let i = 0; i < 10; i++) {
+        await ctx.decide({
+          op: 'upsert', slug: `decision-${i}`,
+          title: `Decision ${i}`, choice: `Choice ${i}`,
+          modules: ['js/agents'], date: `2024-01-${String(i + 1).padStart(2, '0')}`,
+        });
+      }
+
+      await ctx.fold();
+
+      const messages = [];
+      const hookCtx = { messages };
+
+      if (typeof env.events.getHooks === 'function') {
+        const hooks = env.events.getHooks('PreLLMCall');
+        for (const hook of hooks) {
+          if (hook && typeof hook.handler === 'function') {
+            hook.handler(hookCtx);
+          }
+        }
+      }
+
+      const contextMsg = messages.find(m => m.role === 'system' && m.content.includes('[context-intent]'));
+      assert.ok(contextMsg, 'should have context message');
+
+      const content = contextMsg.content;
+      const decisionCount = (content.match(/\[decision-/g) || []).length;
+
+      // Legacy mode should cap at 8 decisions
+      assert.ok(decisionCount <= 8, `should cap at 8 decisions in legacy mode (found ${decisionCount})`);
     });
   });
 });

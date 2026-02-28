@@ -62,6 +62,12 @@ export const SchedulingStrategies = {
     if (this.state !== OrchestratorState.RUNNING) this.start();
     if (this.signal.aborted) throw new Error("Run cancelled");
 
+    const stageNames = stages.map(s => toNonEmptyString(s?.name)).filter(Boolean);
+    this.eventBus.emit("parallel:begin", {
+      actor: "system", status: "started",
+      payload: { stages: stageNames, count: stageNames.length, runId: this.runId },
+    });
+
     const results = new Map();
     const concurrencyLimit = Math.max(1, await this._getEffectiveConcurrencyLimit());
     const pending = [...stages];
@@ -106,6 +112,11 @@ export const SchedulingStrategies = {
       console.warn(`[runStagesParallel] ${allErrors.length} stage(s) failed silently`);
     }
 
+    this.eventBus.emit("parallel:end", {
+      actor: "system", status: allErrors.length > 0 ? "partial" : "completed",
+      payload: { count: stageNames.length, failed: allErrors.length, runId: this.runId },
+    });
+
     return results;
   },
 
@@ -128,6 +139,11 @@ export const SchedulingStrategies = {
     if (list.length === 0) return new Map();
 
     const continueOnError = options?.continueOnError === true;
+    const graphStageNames = [...list].map(s => toNonEmptyString(s?.name)).filter(Boolean);
+    this.eventBus.emit("graph:begin", {
+      actor: "system", status: "started",
+      payload: { stages: graphStageNames, count: graphStageNames.length, runId: this.runId },
+    });
 
     /** @type {Map<string, { name: string, input?: any, dependsOn?: string[] }>} */
     const byName = new Map();
@@ -198,6 +214,10 @@ export const SchedulingStrategies = {
 
       return results;
     } finally {
+      this.eventBus.emit("graph:end", {
+        actor: "system", status: "completed",
+        payload: { count: graphStageNames.length, runId: this.runId },
+      });
       graph.clear();
     }
   },
@@ -228,6 +248,15 @@ export const SchedulingStrategies = {
         status: "waiting",
         payload: { stage: stageName, inFlight: this._inFlight, limit, runId: this.runId },
       });
+      // Queue depth warning: emit when waiters exceed 2× concurrency limit
+      const queueDepth = this._parallelWaiters.length + 1; // +1 for this waiter about to join
+      if (queueDepth > limit * 2) {
+        this.eventBus.emit("orchestrator:queue:pressure", {
+          actor: "system",
+          status: "warning",
+          payload: { stage: stageName, queueDepth, limit, runId: this.runId },
+        });
+      }
       await this._waitForParallelSlot();
       if (this.signal.aborted) throw new Error("Run cancelled");
     }

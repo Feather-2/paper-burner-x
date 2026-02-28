@@ -314,3 +314,70 @@ describe("RECALL_TOOL_DEFINITION", () => {
     expect(limit.default).toBe(5);
   });
 });
+
+describe("memory:recalled event emission", () => {
+  let compressor;
+  let eventBus;
+  let logger;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    compressor = {
+      listArchives: vi.fn(),
+      restore: vi.fn(),
+    };
+    eventBus = {
+      emit: vi.fn(),
+    };
+    logger = {
+      error: vi.fn(),
+    };
+  });
+
+  it("should emit memory:recalled on successful search", async () => {
+    const handler = createRecallTool({ compressor, eventBus });
+    const results = [{ id: "s1", summary: "Search result" }];
+    compressor.listArchives.mockResolvedValue(results);
+
+    await handler({ action: "search", query: "test", limit: 5 }, { logger });
+
+    expect(eventBus.emit).toHaveBeenCalledWith("memory:recalled", {
+      query: "test",
+      action: "search",
+      resultCount: 1,
+    });
+  });
+
+  it("should emit memory:recalled on successful get", async () => {
+    const handler = createRecallTool({ compressor, eventBus });
+    const snapshot = { context: { data: "test" } };
+    compressor.restore.mockResolvedValue(snapshot);
+
+    await handler({ action: "get", archive_id: "test-id" }, { logger });
+
+    expect(eventBus.emit).toHaveBeenCalledWith("memory:recalled", {
+      atomId: "test-id",
+      action: "get",
+    });
+  });
+
+  it("should NOT emit when eventBus is not provided", async () => {
+    const handler = createRecallTool({ compressor });
+    compressor.listArchives.mockResolvedValue([]);
+
+    const result = await handler({ action: "list" }, { logger });
+
+    expect(result.ok).toBe(true);
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("should NOT emit on failed search", async () => {
+    const handler = createRecallTool({ compressor, eventBus });
+    compressor.listArchives.mockRejectedValue(new Error("search failed"));
+
+    await handler({ action: "search", query: "test" }, { logger });
+
+    expect(eventBus.emit).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalled();
+  });
+});

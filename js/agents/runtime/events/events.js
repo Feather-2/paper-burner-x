@@ -87,10 +87,22 @@ export const WatchdogEvents = Object.freeze({
 export const CicadaEvents = Object.freeze({
   LAYER_COMPLETED: "cicada:layer:completed",
   SHED_COMPLETED: "cicada:shed:completed",
+  DECISIONS_EXTRACTED: "compression:decisions",
 });
 
 /**
- * DeepSearch 事件（新 Agent Loop + Skills 架构）
+ * Orchestrator 事件
+ */
+export const OrchestratorEvents = Object.freeze({
+  QUEUE_PRESSURE: "orchestrator:queue:pressure",
+  CONCURRENCY_WAIT: "orchestrator:concurrency:wait",
+  PARALLEL_BEGIN: "parallel:begin",
+  PARALLEL_END: "parallel:end",
+  GRAPH_BEGIN: "graph:begin",
+  GRAPH_END: "graph:end",
+});
+
+/**
  *
  * 旧 Phase-Based 架构的事件已移除，仅保留：
  * - Agent Loop 生命周期事件

@@ -15,6 +15,9 @@ export const ModelUsage = Object.freeze({
   DESIGNER: "designer",
   VISION: "vision",
   WORKER: "worker",
+  CICADA_SUMMARY: "cicada_summary",
+  SUMMARIZER: "summarizer",
+  EXTRACTOR: "extractor",
 });
 
 /**

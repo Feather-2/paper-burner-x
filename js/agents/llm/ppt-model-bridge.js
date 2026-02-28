@@ -277,6 +277,20 @@ export function buildPptUsageConfigForModelRouter() {
     result[role] = filterByCapability(candidates, 'lang');
   }
 
+  // Compression/extraction roles → cheapest available (worker tier)
+  const compressionRoles = {
+    cicada_summary: 'worker',
+    summarizer: 'worker',
+    extractor: 'worker',
+  };
+  for (const [role, fallbackRole] of Object.entries(compressionRoles)) {
+    let candidates = priority[role];
+    if (!candidates || candidates.length === 0) {
+      candidates = result[fallbackRole] || (legacyLang ? [legacyLang] : []);
+    }
+    result[role] = filterByCapability(candidates, 'lang');
+  }
+
   // vision 特殊处理
   let visionCandidates = priority.vision;
   if (!visionCandidates || visionCandidates.length === 0) {

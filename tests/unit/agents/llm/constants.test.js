@@ -61,6 +61,9 @@ describe("ModelUsage", () => {
       DESIGNER: "designer",
       VISION: "vision",
       WORKER: "worker",
+      CICADA_SUMMARY: "cicada_summary",
+      SUMMARIZER: "summarizer",
+      EXTRACTOR: "extractor",
     };
 
     expect(Object.isFrozen(ModelUsage)).toBe(true);
@@ -69,6 +72,19 @@ describe("ModelUsage", () => {
     for (const [key, value] of Object.entries(expected)) {
       expect(ModelUsage[key]).toBe(value);
     }
+  });
+
+  it("should include cicada_summary, summarizer, extractor in ModelUsage", () => {
+    expect(ModelUsage.CICADA_SUMMARY).toBe("cicada_summary");
+    expect(ModelUsage.SUMMARIZER).toBe("summarizer");
+    expect(ModelUsage.EXTRACTOR).toBe("extractor");
+  });
+
+  it("should validate new entries with isValidModelUsage", () => {
+    expect(isValidModelUsage("cicada_summary")).toBe(true);
+    expect(isValidModelUsage("summarizer")).toBe(true);
+    expect(isValidModelUsage("extractor")).toBe(true);
+    expect(isValidModelUsage("invalid_usage")).toBe(false);
   });
 });
 

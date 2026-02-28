@@ -22,6 +22,29 @@ export const AgentCoordination = {
   },
 
   /**
+   * Create a child orchestrator that inherits parent config.
+   * Inherits: services, eventBus, degradationMatrix, runContext (mode/scenario/constraints).
+   * The child is auto-registered for disposal.
+   * @param {object} [overrides] - Override any constructor option.
+   * @returns {import('./orchestrator-core.js').AgentOrchestrator}
+   */
+  createChildOrchestrator(overrides = {}) {
+    this._ensureNotDisposed();
+    const Ctor = this.constructor;
+    const child = new Ctor({
+      mode: this.runContext?.mode,
+      scenario: this.runContext?.scenario,
+      constraints: this.runContext?.constraints,
+      services: this._services,
+      eventBus: this.eventBus,
+      degradationMatrix: this._degradationMatrix,
+      ...overrides,
+    });
+    this.registerAgent(child);
+    return child;
+  },
+
+  /**
    * @returns {void}
    */
   start() {

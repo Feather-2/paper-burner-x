@@ -22,6 +22,8 @@ import {
   addSnapshotToIndex,
   updateSnapshotAccess,
   removeSnapshotFromIndex,
+  CURRENT_SCHEMA_VERSION,
+  migrateIndex,
 } from "../../../../../../js/agents/plugins/memory/l3-storage/index-manager.js";
 import { toNonEmptyString } from "../../../../../../js/agents/plugins/memory/l3-storage/utils.js";
 
@@ -74,7 +76,7 @@ describe("serializeIndexState", () => {
 
     const result = serializeIndexState(index, ["c1", "c2"], "run-1");
 
-    expect(result.schemaVersion).toBe("0.1");
+    expect(result.schemaVersion).toBe("0.2");
     expect(result.runId).toBe("run-1");
     expect(result.updatedAt).toBe(12345);
     expect(result.timeline).toEqual([{ id: "a", ts: 0, accessedAt: 0, summary: "sum" }]);
@@ -392,5 +394,78 @@ describe("removeSnapshotFromIndex", () => {
     const sizeAfter = index.keywords.get("bulk").size;
     removeSnapshotFromIndex(index, "id500");
     expect(index.keywords.get("bulk").size).toBe(sizeAfter);
+  });
+});
+
+describe("L3 Schema migration", () => {
+  it("CURRENT_SCHEMA_VERSION is 0.2", () => {
+    expect(CURRENT_SCHEMA_VERSION).toBe("0.2");
+  });
+
+  it("migrateIndex from 0.1 adds accessCount: 0 to timeline entries", () => {
+    const raw = {
+      schemaVersion: "0.1",
+      timeline: [
+        { id: "a", ts: 100, accessedAt: 100 },
+        { id: "b", ts: 200, accessedAt: 200 },
+      ],
+      keywords: [],
+      stages: [],
+      hashIndex: [],
+    };
+
+    const migrated = migrateIndex(raw);
+
+    expect(migrated.schemaVersion).toBe("0.2");
+    expect(migrated.timeline[0].accessCount).toBe(0);
+    expect(migrated.timeline[1].accessCount).toBe(0);
+  });
+
+  it("migrateIndex on current version data is a no-op", () => {
+    const raw = {
+      schemaVersion: "0.2",
+      timeline: [{ id: "a", ts: 100, accessedAt: 100, accessCount: 5 }],
+      keywords: [],
+      stages: [],
+      hashIndex: [],
+    };
+
+    const migrated = migrateIndex(raw);
+
+    expect(migrated.schemaVersion).toBe("0.2");
+    expect(migrated.timeline[0].accessCount).toBe(5);
+  });
+
+  it("restoreIndexState auto-migrates 0.1 data", () => {
+    const raw = {
+      schemaVersion: "0.1",
+      timeline: [
+        { id: "snap1", ts: 100, accessedAt: 100 },
+        { id: "snap2", ts: 200, accessedAt: 200 },
+      ],
+      keywords: [["alpha", ["snap1"]]],
+      stages: [["stage1", "snap1"]],
+      hashIndex: [["hash1", "snap1"]],
+      checkpointIndex: ["cp1"],
+    };
+
+    const result = restoreIndexState(raw);
+
+    expect(result).not.toBeNull();
+    expect(result.index.timeline[0].accessCount).toBe(0);
+    expect(result.index.timeline[1].accessCount).toBe(0);
+  });
+
+  it("updateSnapshotAccess increments accessCount", () => {
+    const index = createIndexState();
+    index.timeline.push({ id: "snap1", ts: 100, accessedAt: 100, accessCount: 0 });
+
+    updateSnapshotAccess(index, "snap1", 150);
+    expect(index.timeline[0].accessCount).toBe(1);
+    expect(index.timeline[0].accessedAt).toBe(150);
+
+    updateSnapshotAccess(index, "snap1", 200);
+    expect(index.timeline[0].accessCount).toBe(2);
+    expect(index.timeline[0].accessedAt).toBe(200);
   });
 });

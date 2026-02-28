@@ -1,6 +1,54 @@
 import { BYTES_PER_CHAR, ENTRY_OVERHEAD_BYTES } from "./constants.js";
 import { toNonEmptyString } from "./utils.js";
 
+/** Current schema version for L3 index persistence. */
+export const CURRENT_SCHEMA_VERSION = "0.2";
+
+/**
+ * Migration registry: maps `fromVersion` to `{ toVersion, migrate(raw) }`.
+ * Each migration mutates `raw` in-place and returns it.
+ * @type {Map<string, { toVersion: string, migrate: (raw: object) => object }>}
+ */
+const migrations = new Map([
+  ["0.1", {
+    toVersion: "0.2",
+    migrate(raw) {
+      // 0.1→0.2: add accessCount to timeline entries
+      if (Array.isArray(raw.timeline)) {
+        for (const entry of raw.timeline) {
+          if (entry && typeof entry === "object" && typeof entry.accessCount !== "number") {
+            entry.accessCount = 0;
+          }
+        }
+      }
+      raw.schemaVersion = "0.2";
+      return raw;
+    },
+  }],
+]);
+
+/**
+ * Run all applicable migrations from `raw.schemaVersion` up to `CURRENT_SCHEMA_VERSION`.
+ * @param {object} raw - Persisted index data.
+ * @returns {object} Migrated data (mutated in-place).
+ */
+export function migrateIndex(raw) {
+  let version = typeof raw?.schemaVersion === "string" ? raw.schemaVersion : "0.1";
+  let steps = 0;
+  const MAX_STEPS = 20; // guard against infinite loops
+  while (version !== CURRENT_SCHEMA_VERSION && steps < MAX_STEPS) {
+    const migration = migrations.get(version);
+    if (!migration) {
+      console.warn(`[L3Storage] No migration from schema ${version} to ${CURRENT_SCHEMA_VERSION}`);
+      break;
+    }
+    raw = migration.migrate(raw);
+    version = migration.toVersion;
+    steps++;
+  }
+  return raw;
+}
+
 /**
  * Create a new index state container.
  * @returns {{timeline: Array, keywords: Map<string, Set<string>>, stages: Map<string, string>, hashIndex: Map<string, string>}}
@@ -24,7 +72,7 @@ export function createIndexState() {
  */
 export function serializeIndexState(index, checkpointIndex, runId) {
   return {
-    schemaVersion: "0.1",
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     runId,
     updatedAt: Date.now(),
     timeline: Array.isArray(index.timeline) ? index.timeline : [],
@@ -42,6 +90,11 @@ export function serializeIndexState(index, checkpointIndex, runId) {
  */
 export function restoreIndexState(raw) {
   if (!raw || typeof raw !== "object") return null;
+
+  // Schema migration: upgrade persisted data to current version
+  if (raw.schemaVersion !== CURRENT_SCHEMA_VERSION) {
+    raw = migrateIndex(raw);
+  }
 
   // Check data size (max 100MB)
   const serialized = JSON.stringify(raw);
@@ -133,7 +186,10 @@ export function updateSnapshotAccess(index, snapshotId, accessedAt = Date.now())
   if (!id) return null;
   const timeline = Array.isArray(index.timeline) ? index.timeline : [];
   const entry = timeline.find((e) => e?.id === id);
-  if (entry) entry.accessedAt = accessedAt;
+  if (entry) {
+    entry.accessedAt = accessedAt;
+    entry.accessCount = (typeof entry.accessCount === "number" ? entry.accessCount : 0) + 1;
+  }
   return entry || null;
 }
 

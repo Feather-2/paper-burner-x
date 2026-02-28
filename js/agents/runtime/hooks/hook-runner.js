@@ -47,7 +47,7 @@ export function clearTokenPatterns() {
   _customTokenPatterns = [];
 }
 
-function sanitizeString(input, maxChars) {
+export function sanitizeString(input, maxChars) {
   const maxLen = Number.isFinite(maxChars) ? Math.max(32, Math.floor(maxChars)) : 500;
   let s = String(input ?? "");
 

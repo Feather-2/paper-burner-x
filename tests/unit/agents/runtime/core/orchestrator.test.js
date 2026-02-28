@@ -698,4 +698,104 @@ await Promise.all([orchCancel.dispose(), orchFail.dispose(), orchIdleEnd.dispose
       expect(result.list).toEqual([]);
     });
   });
+
+  describe("createChildOrchestrator", () => {
+    it("creates child that inherits parent eventBus", () => {
+      orchestrator = new AgentOrchestrator();
+      const child = orchestrator.createChildOrchestrator();
+
+      expect(child.eventBus).toBe(orchestrator.eventBus);
+    });
+
+    it("creates child that inherits parent runContext (mode/scenario/constraints)", () => {
+      orchestrator = new AgentOrchestrator({
+        mode: "deepsearch",
+        scenario: "research",
+        constraints: { maxTokens: 1000 },
+      });
+      const child = orchestrator.createChildOrchestrator();
+
+      expect(child.runContext.mode).toBe("deepsearch");
+      expect(child.runContext.scenario).toBe("research");
+      expect(child.runContext.constraints).toEqual({ maxTokens: 1000 });
+    });
+
+    it("auto-registers child for disposal", async () => {
+      orchestrator = new AgentOrchestrator();
+      const child = orchestrator.createChildOrchestrator();
+      const childDisposeSpy = vi.spyOn(child, "dispose");
+
+      expect(orchestrator._childAgents.has(child)).toBe(true);
+
+      await orchestrator.dispose();
+      expect(childDisposeSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("allows overrides for child config", () => {
+      orchestrator = new AgentOrchestrator({
+        mode: "deepsearch",
+        scenario: "research",
+        scheduling: { mode: SchedulingMode.SEQUENTIAL },
+      });
+      const child = orchestrator.createChildOrchestrator({
+        mode: "design",
+        scheduling: { mode: SchedulingMode.PARALLEL, maxConcurrency: 5 },
+      });
+
+      expect(child.runContext.mode).toBe("design");
+      expect(child.runContext.scenario).toBe("research");
+      expect(child._schedulingMode).toBe(SchedulingMode.PARALLEL);
+      expect(child._maxConcurrency).toBe(5);
+      expect(child.eventBus).toBe(orchestrator.eventBus);
+    });
+  });
+
+  describe("parallel and graph events", () => {
+    it("emits parallel:begin and parallel:end events", async () => {
+      orchestrator = new AgentOrchestrator();
+      orchestrator.registerStage("task1", () => "ok1");
+      orchestrator.registerStage("task2", () => "ok2");
+
+      await orchestrator.runStagesParallel([{ name: "task1" }, { name: "task2" }]);
+
+      const names = getEmitNames(orchestrator.eventBus);
+      expect(names).toContain("parallel:begin");
+      expect(names).toContain("parallel:end");
+
+      const beginEvent = getEmitRecord(orchestrator.eventBus, "parallel:begin");
+      expect(beginEvent.actor).toBe("system");
+      expect(beginEvent.status).toBe("started");
+      expect(beginEvent.payload.stages).toEqual(["task1", "task2"]);
+      expect(beginEvent.payload.count).toBe(2);
+
+      const endEvent = getEmitRecord(orchestrator.eventBus, "parallel:end");
+      expect(endEvent.actor).toBe("system");
+      expect(endEvent.status).toBe("completed");
+      expect(endEvent.payload.count).toBe(2);
+      expect(endEvent.payload.failed).toBe(0);
+    });
+
+    it("emits graph:begin and graph:end events", async () => {
+      orchestrator = new AgentOrchestrator();
+      orchestrator.registerStage("a", () => "ok");
+      orchestrator.registerStage("b", () => "ok");
+
+      await orchestrator.runStagesGraph([{ name: "a" }, { name: "b", dependsOn: ["a"] }]);
+
+      const names = getEmitNames(orchestrator.eventBus);
+      expect(names).toContain("graph:begin");
+      expect(names).toContain("graph:end");
+
+      const beginEvent = getEmitRecord(orchestrator.eventBus, "graph:begin");
+      expect(beginEvent.actor).toBe("system");
+      expect(beginEvent.status).toBe("started");
+      expect(beginEvent.payload.stages).toEqual(["a", "b"]);
+      expect(beginEvent.payload.count).toBe(2);
+
+      const endEvent = getEmitRecord(orchestrator.eventBus, "graph:end");
+      expect(endEvent.actor).toBe("system");
+      expect(endEvent.status).toBe("completed");
+      expect(endEvent.payload.count).toBe(2);
+    });
+  });
 });

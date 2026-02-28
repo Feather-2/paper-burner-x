@@ -474,7 +474,7 @@ export class AgentFactory {
 
       config.useCapability("Recall", {
         definition: RECALL_TOOL_DEFINITION,
-        handler: createRecallTool({ compressor }),
+        handler: createRecallTool({ compressor, eventBus }),
       });
     }
 

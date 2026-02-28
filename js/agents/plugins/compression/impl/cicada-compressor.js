@@ -13,6 +13,7 @@ import {
   normalizeSummaryPayload, buildFallbackSummary,
   IMPORTANT_KEYS, VERBOSE_KEYS, DANGEROUS_KEYS,
 } from "./cicada-helpers.js";
+import { sanitizeString } from "../../../runtime/hooks/hook-runner.js";
 
 const logger = createLogger("runtime/compression/cicada-compressor");
 
@@ -236,6 +237,15 @@ export class CicadaCompressor {
         metadata.llmSummary = llm;
         metadata.stats.llmSummary = llm.stats;
         this._emit(CicadaEvents.LAYER_COMPLETED, { layer, stats: llm.stats });
+
+        // Emit decisions for context-intent auto-extraction
+        if (Array.isArray(llm?.decisions) && llm.decisions.length > 0) {
+          this._emit("compression:decisions", {
+            decisions: llm.decisions,
+            stageKey: toNonEmptyString(options.stageKey) || null,
+            runId: toNonEmptyString(options.runId) || null,
+          });
+        }
       }
     }
 
@@ -499,6 +509,14 @@ export class CicadaCompressor {
       : (isPlainObject(raw) ? raw : null);
     const fallback = buildFallbackSummary(contextText);
     const summary = normalizeSummaryPayload(parsed, fallback);
+
+    // Redact secrets from LLM output before storage
+    const _san = (s, max) => typeof s === "string" ? sanitizeString(s, max) : s;
+    if (typeof summary.summary === "string") summary.summary = _san(summary.summary, 4000);
+    if (Array.isArray(summary.keyPoints)) summary.keyPoints = summary.keyPoints.map(s => _san(s, 1000));
+    if (Array.isArray(summary.decisions)) summary.decisions = summary.decisions.map(s => _san(s, 1000));
+    if (Array.isArray(summary.errors)) summary.errors = summary.errors.map(s => _san(s, 1000));
+
     const stats = {
       promptTokens: estimateTokens(prompt),
       summaryTokens: estimateTokens(summary.summary),

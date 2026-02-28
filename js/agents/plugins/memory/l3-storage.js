@@ -760,8 +760,8 @@ export class L3Storage extends DisposableBase {
   }
 
   /**
-   * Background eviction: remove oldest snapshots if limits exceeded.
-   * Evicts by snapshot count or storage bytes, using LRU (accessedAt) ordering.
+   * Background eviction: remove lowest-value snapshots if limits exceeded.
+   * Uses weighted scoring: recency 70% + access frequency 30% (replaces pure LRU).
    * @private
    * @returns {Promise<void>}
    */
@@ -774,11 +774,20 @@ export class L3Storage extends DisposableBase {
     const bytes = estimateStorageBytes(this._index);
     if (count <= this._maxSnapshots && bytes <= this._maxStorageBytes) return;
 
-    // Sort by accessedAt (oldest first) for LRU eviction
+    // Weighted eviction: recency (70%) + access frequency (30%)
+    // Lower score = more likely to evict
+    const now = Date.now();
+    const maxAge = Math.max(1, now - Math.min(...timeline.map(e => e?.ts || now)));
     const sorted = [...timeline].sort((a, b) => {
       const aAt = typeof a?.accessedAt === "number" ? a.accessedAt : a?.ts || 0;
       const bAt = typeof b?.accessedAt === "number" ? b.accessedAt : b?.ts || 0;
-      return aAt - bAt;
+      const aFreq = typeof a?.accessCount === "number" ? a.accessCount : 1;
+      const bFreq = typeof b?.accessCount === "number" ? b.accessCount : 1;
+      const aRecency = (now - aAt) / maxAge; // 0=newest, 1=oldest
+      const bRecency = (now - bAt) / maxAge;
+      const aScore = 0.7 * (1 - aRecency) + 0.3 * Math.log2(aFreq + 1);
+      const bScore = 0.7 * (1 - bRecency) + 0.3 * Math.log2(bFreq + 1);
+      return aScore - bScore; // lowest score evicted first
     });
 
     const evicted = [];
