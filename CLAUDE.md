@@ -215,42 +215,42 @@ StorageFacade (门面)
 
 ## 意图维度协议 (Intent Protocol)
 
-项目使用五维度正交架构管理上下文（详见 `docs/tool-layer-five-dimensions.md`）。意图数据存储在 `.context/intent/`，CLI 入口为 `pb-context <cmd>`（全局包 `@pb/context-cli`），项目内 `scripts/context-*.js` 为 thin wrapper 代理。
+项目使用五维度正交架构管理上下文（详见 `docs/tool-layer-five-dimensions.md`）。意图数据存储在 `.context/intent/`，CLI 入口为 `kenon <cmd>`（全局包 `@pb/kenon`），项目内 `scripts/kenon-*.js` 为 thin wrapper 代理。
 
 ### Agent 工作流
 
 **任何涉及代码修改的任务**，遵循以下协议（非特定 Skill 内部逻辑，是通用工作流）：
 
 ```
-开始工作 → context-load <module> --scenario edit   读五维度上下文
-查历史   → context-history <keyword>               搜索决策 / 追溯因果链
-改代码   → context-write ...                        写入即时，dirty 自动累积
+开始工作 → kenon load <module> --scenario edit      读五维度上下文
+查历史   → kenon history <keyword>                  搜索决策 / 追溯因果链
+改代码   → kenon write ...                           写入即时，dirty 自动累积
          → (重复编辑，dirty 持续累积)
 校验     → 当 flush_hint=true 时执行：
-           context-check --diff                    检查 diff 是否违反排除记录
-           context-impact <file>                    受影响文件 + 建议测试
-           context-stale <module>                   哪些文档需更新
-         → context-load --ack-flush                消解已处理的 dirty
-记决策   → context-decide                          有架构意义的改动记录决策
-会话结束 → context-finalize                         建议原子 → 确认写入 → 自动清空 dirty
+           kenon check --diff                       检查 diff 是否违反排除记录
+           kenon impact <file>                       受影响文件 + 建议测试
+           kenon stale <module>                      哪些文档需更新
+         → kenon load --ack-flush                   消解已处理的 dirty
+记决策   → kenon decide                             有架构意义的改动记录决策
+会话结束 → kenon finalize                            建议原子 → 确认写入 → 自动清空 dirty
 ```
 
-**flush 策略**：`context-load` 输出 `flush_hint` 和 `flush_dirty` 字段，指示是否需要校验：
+**flush 策略**：`kenon load` 输出 `flush_hint` 和 `flush_dirty` 字段，指示是否需要校验：
 - `eager`（默认）：每次写入后 load 即提示 flush，等价于逐次校验
 - `batched`：dirty 累积到阈值（默认 5）或模块切换时才提示
-- 配置方式：`context.config.json` 中 `"flush": {"policy": "batched", "threshold": 5}`
+- 配置方式：`kenon.config.json` 中 `"flush": {"policy": "batched", "threshold": 5}`
 
 ### 判断标准
 
-- **记录决策**：新增抽象、改变数据流、修改公共接口、选择方案 A 而非 B → 调用 `context-decide`
+- **记录决策**：新增抽象、改变数据流、修改公共接口、选择方案 A 而非 B → 调用 `kenon decide`
 - **不记录**：纯 bug 修复、依赖升级、文档更新、格式调整、机械替换
 - **排除方案**：考虑过但放弃的替代方案，记录排除理由和重新考虑条件
 
 ### 降级守卫
 
-所有 context-* 调用遵循三层降级：
-1. `pb-context <cmd>` 在 PATH 中 → 直接调用（推荐）
-2. `scripts/context-*.js` thin wrapper → 代理到 `pb-context`
+所有 kenon 子命令调用遵循三层降级：
+1. `kenon <cmd>` 在 PATH 中 → 直接调用（推荐）
+2. `scripts/kenon-*.js` thin wrapper → 代理到 `kenon`
 3. 以上均不可用 → 跳过，不报错
 - `.context/intent/` 不存在 → 跳过，不报错
 - 脚本执行失败 → 打印 warning，不阻塞主流程
