@@ -45,6 +45,19 @@ Worker 运行时用于在 Agent 微内核中提供隔离执行能力，核心目
 
 - 提供 Service Worker HTTP 桥接，支持浏览器内虚拟服务请求路由。
 
+#### `worker-pool.js`（Worker 池管理）
+
+- 位置：`js/agents/runtime/core/worker-pool.js`（433 行）
+- DI 注册：`js/agents/core/di/defaults.js:305-315`
+- 特性：
+  - 按需创建 Worker，空闲自动回收（30 秒超时）
+  - 最大并发限制（根据 CPU 核心数自动调整，默认是核心数的一半，最小 2，最大 8）
+  - 健康检查和自动重启
+  - 任务队列和优先级调度（HIGH/NORMAL/LOW）
+  - 任务超时控制（默认 60 秒）
+  - 优雅关闭（`drain()` 和 `close()`）
+  - 统计信息（`stats` 属性：`total`/`busy`/`idle`/`queued`）
+
 ### 2.3 底层 API
 
 - `Web Worker`（浏览器）。
@@ -184,6 +197,10 @@ Worker 运行时用于在 Agent 微内核中提供隔离执行能力，核心目
 3. 零依赖设计：
    - `worker-comlink.js` 不依赖第三方库。
    - 自实现类 Comlink 的 RPC 层。
+4. **Worker Pool 已实现**：
+   - `runtime/core/worker-pool.js` 提供完善的 Worker 池管理。
+   - 支持动态池管理、优先级调度、空闲回收、优雅关闭。
+   - 通过 DI 容器注册，可在整个系统中使用。
 
 ## 9. 相关文件
 
@@ -191,4 +208,36 @@ Worker 运行时用于在 Agent 微内核中提供隔离执行能力，核心目
 - `js/agents/core/sandbox/create-sandbox.js:115-116` - 浏览器 Worker 后端的 Node 限制
 - `js/agents/core/webruntime/worker-comlink.js` - RPC 通信层
 - `js/agents/core/sandbox/index.js:173` - webruntime 导入/重导出
+- `js/agents/runtime/core/worker-pool.js` - Worker 池管理实现
+- `js/agents/core/di/defaults.js:305-315` - WorkerPool DI 注册
+- `js/agents/core/sandbox/constants.js` - ResourceLimits 定义
 
+## 10. 已知问题与改进建议
+
+### 10.1 资源限制未生效（高优先级）
+
+**问题**：`ResourceLimits` 在 `constants.js` 中定义了三个预设（LIGHT/STANDARD/HEAVY），但 `skill-sandbox.js:332` 创建 Node Worker 时**没有传递** `resourceLimits` 参数。
+
+**影响**：Node Worker 没有内存和 CPU 时间限制，可能导致资源耗尽。
+
+**建议**：在创建 Worker 时应用 `resourceLimits`：
+
+```javascript
+const worker = new Worker(workerPath, {
+  resourceLimits: {
+    maxOldGenerationSizeMb: 64,  // 来自 ResourceLimits.STANDARD
+    maxYoungGenerationSizeMb: 8,
+    codeRangeSizeMb: 8,
+  }
+});
+```
+
+### 10.2 通信层不统一（中优先级）
+
+**问题**：Node 侧和浏览器侧使用不同的通信模式：
+- 浏览器侧：使用 `worker-comlink.js` 的完整 RPC 抽象
+- Node 侧：使用原生 `postMessage`/`on('message')` 模式
+
+**影响**：增加维护成本，代码不一致。
+
+**建议**：统一使用 `worker-comlink.js` 风格的 RPC 通信层，适配 Node.js `worker_threads` 的消息 API。
