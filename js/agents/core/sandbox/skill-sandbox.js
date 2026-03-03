@@ -11,6 +11,7 @@ import {
   isWasmSupported,
   validateFallbackCode,
 } from './skill-executor-helpers.js';
+import { wrapNodeWorker } from '../webruntime/worker-comlink-node.js';
 
 /**
  * 确保 WASM 沙箱池已初始化（若当前环境不支持 WASM，则返回 null）。
@@ -313,62 +314,46 @@ export async function executeFallbackInNodeWorker(options, logger) {
 
   // @ts-ignore - Node-only type; this package is type-checked without Node types.
   /** @type {import('node:worker_threads').Worker | null} */
-  let worker = null;
+  let nodeWorker = null;
   try {
-    worker = new Worker(workerPath, {
+    nodeWorker = new Worker(workerPath, {
       resourceLimits: workerResourceLimits,
     });
   } catch (err) {
     throw new Error(`Failed to create Node worker: ${err?.message}`);
   }
 
-  const id = 1;
+  const removeListener = typeof nodeWorker.off === 'function'
+    ? (event, handler) => nodeWorker.off(event, handler)
+    : typeof nodeWorker.removeListener === 'function'
+      ? (event, handler) => nodeWorker.removeListener(event, handler)
+      : () => {};
 
-  return await new Promise((resolve) => {
-    let done = false;
-    /** @type {ReturnType<typeof setTimeout> | null} */
-    let timeoutId = null;
+  /** @type {(err: any) => void} */
+  let onError;
+  /** @type {(code: number) => void} */
+  let onExit;
 
-    const finish = (result) => {
-      if (done) return;
-      done = true;
-      resolve(result);
-    };
+  const detachLifecycleListeners = () => {
+    if (onError) removeListener('error', onError);
+    if (onExit) removeListener('exit', onExit);
+  };
 
-    const cleanup = () => {
-      if (timeoutId) clearTimeout(timeoutId);
-      try {
-        worker?.terminate?.();
-      } catch {
-        // ignore
-      }
-      worker = null;
-    };
+  // Match existing host timeout behavior: worker timeout + 1s grace period.
+  const rpcTimeout = timeoutMs > 0 ? timeoutMs + 1000 : 2_147_483_647;
 
-    // Host-side timeout
-    if (timeoutMs > 0) {
-      timeoutId = setTimeout(() => {
-        cleanup();
-        finish({
-          ok: false,
-          value: null,
-          error: 'Worker execution timeout',
-          durationMs: Date.now() - startTime,
-          timedOut: true,
-          mode: 'node-worker',
-        });
-      }, timeoutMs + 1000);
-    }
-
-    worker.on('message', (data) => {
-      const { type, success, data: resultData, error, metrics, name, payload, level, args, event } = data || {};
-
-      if (type === 'emit') {
+  const worker = wrapNodeWorker(nodeWorker, {
+    timeout: rpcTimeout,
+    methodTimeouts: { execute: rpcTimeout },
+    onConsole(method, args) {
+      if (method === 'emit') {
+        const [name, payload] = Array.isArray(args) ? args : [];
         options?.onEmit?.(name, payload);
         return;
       }
 
-      if (type === 'audit') {
+      if (method === 'audit') {
+        const [event, payload] = Array.isArray(args) ? args : [];
         try {
           logger.debug('Sandbox audit', { mode: 'node-worker', event, payload });
         } catch {
@@ -377,68 +362,65 @@ export async function executeFallbackInNodeWorker(options, logger) {
         return;
       }
 
-      if (type === 'log') {
-        options?.onLog?.(level, args);
-        return;
+      if (method === 'log') {
+        const [level, logArgs] = Array.isArray(args) ? args : [];
+        options?.onLog?.(level, Array.isArray(logArgs) ? logArgs : []);
       }
-
-      if (type === 'result') {
-        cleanup();
-        const elapsed = (metrics && typeof metrics === 'object' && typeof metrics.duration === 'number') ? metrics.duration : Date.now() - startTime;
-        finish({
-          ok: Boolean(success),
-          value: success ? resultData : null,
-          error: success ? undefined : String(error || 'Unknown error'),
-          durationMs: elapsed,
-          mode: 'node-worker',
-        });
-      }
-    });
-
-    worker.on('error', (err) => {
-      cleanup();
-      finish({
-        ok: false,
-        value: null,
-        error: err?.message || String(err),
-        durationMs: Date.now() - startTime,
-        mode: 'node-worker',
-      });
-    });
-
-    worker.on('exit', (code) => {
-      if (!done && code !== 0) {
-        cleanup();
-        finish({
-          ok: false,
-          value: null,
-          error: `Worker exited with code ${code}`,
-          durationMs: Date.now() - startTime,
-          mode: 'node-worker',
-        });
-      }
-    });
-
-    try {
-      worker.postMessage({
-        type: 'execute',
-        id,
-        code: options.code,
-        state: options.state,
-        globals: options.globals,
-        timeout: timeoutMs,
-      });
-    } catch (err) {
-      cleanup();
-      finish({
-        ok: false,
-        value: null,
-        error: err?.message || String(err),
-        durationMs: Date.now() - startTime,
-        mode: 'node-worker',
-      });
-    }
+    },
   });
+
+  const lifecycleFailure = new Promise((_, reject) => {
+    onError = (err) => {
+      reject(err instanceof Error ? err : new Error(String(err)));
+    };
+    onExit = (code) => {
+      if (code !== 0) {
+        reject(new Error(`Worker exited with code ${code}`));
+      }
+    };
+    nodeWorker.on('error', onError);
+    nodeWorker.on('exit', onExit);
+  });
+
+  try {
+    const value = await Promise.race([
+      worker.execute({
+        code: options?.code,
+        filename: options?.filename,
+        state: options?.state,
+        globals: options?.globals,
+        timeout: timeoutMs,
+      }),
+      lifecycleFailure,
+    ]);
+
+    return {
+      ok: true,
+      value,
+      durationMs: Date.now() - startTime,
+      mode: 'node-worker',
+    };
+  } catch (err) {
+    const errorMessage = err?.message || String(err);
+    const timedOut = /worker call timeout|execution timeout|timed?\s*out/i.test(errorMessage);
+
+    return {
+      ok: false,
+      value: null,
+      error: timedOut ? 'Worker execution timeout' : errorMessage,
+      durationMs: Date.now() - startTime,
+      ...(timedOut ? { timedOut: true } : {}),
+      mode: 'node-worker',
+    };
+  } finally {
+    detachLifecycleListeners();
+    try {
+      worker.terminate();
+    } catch {
+      // ignore
+    }
+    nodeWorker = null;
+  }
 }
 
 /**

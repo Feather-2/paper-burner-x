@@ -21,6 +21,7 @@ export { generateCspHeader, generateSwScript, generateSandboxFiles } from './san
 
 // Worker comlink
 export { wrapWorker, exposeApi, MSG_CALL, MSG_RETURN, MSG_CONSOLE } from './worker-comlink.js';
+export { wrapNodeWorker, createWorkerAdapter } from './worker-comlink-node.js';
 
 // VFS snapshot
 export { uint8ToBase64, base64ToUint8, toSnapshot, fromSnapshot, diffSnapshots } from './vfs-snapshot.js';

@@ -38,9 +38,14 @@ describe('skill-sandbox resource limits', () => {
           this.handlers[event] = handler;
         }
 
-        postMessage() {
+        off(event) {
+          delete this.handlers[event];
+        }
+
+        postMessage(payload) {
           this.handlers.message?.({
             type: 'result',
+            id: payload?.id,
             success: true,
             data: 'test',
             metrics: { duration: 1 },
