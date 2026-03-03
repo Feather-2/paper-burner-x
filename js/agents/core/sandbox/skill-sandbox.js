@@ -298,6 +298,13 @@ export async function executeFallbackInWorker(workerUrl, options, logger) {
 export async function executeFallbackInNodeWorker(options, logger) {
   const startTime = Date.now();
   const timeoutMs = Math.max(0, Number(options?.timeoutMs ?? 30000));
+  const standardMemoryMb = Math.max(1, Math.ceil(ResourceLimits.STANDARD.memoryLimit / (1024 * 1024)));
+  const workerResourceLimits = {
+    // Node worker_threads uses MB units for resource limits.
+    maxOldGenerationSizeMb: standardMemoryMb * 8,
+    maxYoungGenerationSizeMb: standardMemoryMb,
+    codeRangeSizeMb: standardMemoryMb,
+  };
 
   // Dynamic import for Node.js worker_threads
   // @ts-ignore - Node-only module; this package is type-checked without Node types.
@@ -308,7 +315,9 @@ export async function executeFallbackInNodeWorker(options, logger) {
   /** @type {import('node:worker_threads').Worker | null} */
   let worker = null;
   try {
-    worker = new Worker(workerPath);
+    worker = new Worker(workerPath, {
+      resourceLimits: workerResourceLimits,
+    });
   } catch (err) {
     throw new Error(`Failed to create Node worker: ${err?.message}`);
   }
