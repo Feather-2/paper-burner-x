@@ -247,6 +247,22 @@ describe('worker-comlink-node', () => {
       expect(worker.offCalls).toHaveLength(1);
     });
 
+    it('supports add/removeEventListener for exit', () => {
+      const worker = new MockNodeWorker();
+      const adapter = createWorkerAdapter(worker);
+      const onExit = vi.fn();
+
+      adapter.addEventListener('exit', onExit);
+      expect(worker.listenerCount('exit')).toBe(1);
+
+      worker.emit('exit', 7);
+      expect(onExit).toHaveBeenCalledWith({ code: 7 });
+
+      adapter.removeEventListener('exit', onExit);
+      expect(worker.listenerCount('exit')).toBe(0);
+      expect(worker.offCalls).toHaveLength(1);
+    });
+
     it('falls back to removeListener when off is unavailable', () => {
       const worker = new MockNodeWorker({ supportsOff: false, supportsRemoveListener: true });
       const adapter = createWorkerAdapter(worker);
@@ -314,6 +330,21 @@ describe('worker-comlink-node', () => {
 
       api.terminate();
       expect(worker.terminate).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects pending execute when worker exits before response', async () => {
+      const worker = new MockNodeWorker();
+      const api = wrapNodeWorker(worker, { timeout: 1000 });
+
+      const executePromise = api.execute({ code: 'return 1;' });
+      expect(worker.lastPosted).toMatchObject({
+        type: 'execute',
+        code: 'return 1;',
+      });
+
+      worker.emit('exit', 9);
+      await expect(executePromise).rejects.toThrow('Worker exited with code 9');
+      expect(api.terminated).toBe(true);
     });
   });
 });

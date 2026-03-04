@@ -310,21 +310,22 @@ const worker = new Worker(workerPath, {
 - ✅ `npm run test:agents` 可同时执行目录型测试与 `js/agents/**/__tests__` 下测试
 - ✅ 新增修复相关回归测试进入主测试命令范围
 
-### 11.4 事件处理不完整 🟡 中优先级
+### 11.4 事件处理不完整 ✅ 已修复
 
-**问题**：Node 适配层对 `exit` 没有统一处理，依赖调用方额外补生命周期监听。
+**原问题**：Node 适配层对 `exit` 没有统一处理，依赖调用方额外补生命周期监听。
 
-**证据**：
-- 适配层只处理 `message/error`：`worker-comlink-node.js:122`
-- RPC 层只消费 `message` frame：`worker-comlink.js:33`
+**修复方案**：
+- 在 `worker-comlink-node.js` 的 `createWorkerAdapter` 中补齐 `exit` 事件适配（与 `message/error` 一致支持 `addEventListener/removeEventListener`）。
+- 在 `worker-comlink.js` 的 `wrapWorker()` 中统一监听 `exit`，当 Worker 提前退出时主动 reject pending RPC。
+- `skill-sandbox.js` 的 `executeFallbackInNodeWorker()` 移除手动 `nodeWorker.on('exit')` 兜底，改为依赖统一 RPC 生命周期处理。
 
-**影响**：
-- 当前 `skill-sandbox` 自己补了 `exit/error` 监听，所以当下可用
-- 但 `wrapNodeWorker` 作为公共导出时，其他调用点容易踩坑
-
-**建议**：
-- 在 `wrapNodeWorker` 中统一处理 `exit` 事件
-- 或者在文档中明确说明调用方需要自行处理 `exit` 事件
+**修复结果**：
+- ✅ `wrapNodeWorker` 调用方无需手动补 `exit` 监听。
+- ✅ Worker 异常退出时，pending 调用会即时失败，不再依赖超时兜底。
+- ✅ 已新增回归测试覆盖：
+  - `tests/unit/agents/core/webruntime/worker-comlink-node.test.js`（Node 适配器 `exit` 事件 + `wrapNodeWorker` 提前退出）
+  - `tests/unit/agents/core/webruntime/worker-comlink.test.js`（`wrapWorker` 提前退出 reject）
+  - `js/agents/core/sandbox/__tests__/skill-sandbox-unified-comlink.test.js`（Node fallback 路径 `exit` 错误返回）
 
 ### 11.5 内存泄漏风险 🟢 低优先级
 

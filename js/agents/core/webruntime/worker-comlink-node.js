@@ -105,6 +105,7 @@ function translateIncomingMessage(message) {
 function createWorkerAdapter(nodeWorker) {
   const messageListeners = new Map();
   const errorListeners = new Map();
+  const exitListeners = new Map();
 
   const removeListener = typeof nodeWorker.off === 'function'
     ? (event, handler) => nodeWorker.off(event, handler)
@@ -139,6 +140,15 @@ function createWorkerAdapter(nodeWorker) {
         };
         errorListeners.set(handler, wrapped);
         nodeWorker.on('error', wrapped);
+        return;
+      }
+
+      if (event === 'exit') {
+        const wrapped = (code) => {
+          handler({ code });
+        };
+        exitListeners.set(handler, wrapped);
+        nodeWorker.on('exit', wrapped);
       }
     },
     removeEventListener(event, handler) {
@@ -155,6 +165,14 @@ function createWorkerAdapter(nodeWorker) {
         if (!wrapped) return;
         removeListener('error', wrapped);
         errorListeners.delete(handler);
+        return;
+      }
+
+      if (event === 'exit') {
+        const wrapped = exitListeners.get(handler);
+        if (!wrapped) return;
+        removeListener('exit', wrapped);
+        exitListeners.delete(handler);
       }
     },
   };

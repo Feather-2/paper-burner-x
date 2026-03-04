@@ -145,4 +145,36 @@ describe('skill-sandbox unified comlink', () => {
     expect(result.error).toBe('worker crash');
     expect(result.mode).toBe('node-worker');
   });
+
+  it('returns worker exit error when Node worker exits before response', async () => {
+    /** @type {{ payload?: any }} */
+    const captured = {};
+
+    vi.doMock('node:worker_threads', () => {
+      class MockWorker extends FakeNodeWorker {
+        postMessage(payload) {
+          captured.payload = payload;
+          setTimeout(() => {
+            this.emit('exit', 3);
+          }, 0);
+        }
+      }
+
+      return { Worker: MockWorker };
+    });
+
+    const { executeFallbackInNodeWorker } = await import('../skill-sandbox.js');
+    const result = await executeFallbackInNodeWorker(
+      {
+        code: 'return 1;',
+        timeoutMs: 5000,
+      },
+      createSilentLogger()
+    );
+
+    expect(captured.payload?.type).toBe('execute');
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('Worker exited with code 3');
+    expect(result.mode).toBe('node-worker');
+  });
 });

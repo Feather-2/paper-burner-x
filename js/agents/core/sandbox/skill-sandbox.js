@@ -388,22 +388,6 @@ export async function executeFallbackInNodeWorker(options, logger) {
     throw new Error(`Failed to create Node worker: ${err?.message}`);
   }
 
-  const removeListener = typeof nodeWorker.off === 'function'
-    ? (event, handler) => nodeWorker.off(event, handler)
-    : typeof nodeWorker.removeListener === 'function'
-      ? (event, handler) => nodeWorker.removeListener(event, handler)
-      : () => {};
-
-  /** @type {(err: any) => void} */
-  let onError;
-  /** @type {(code: number) => void} */
-  let onExit;
-
-  const detachLifecycleListeners = () => {
-    if (onError) removeListener('error', onError);
-    if (onExit) removeListener('exit', onExit);
-  };
-
   // Match existing host timeout behavior: worker timeout + 1s grace period.
   const rpcTimeout = timeoutMs > 0 ? timeoutMs + 1000 : 2_147_483_647;
 
@@ -434,30 +418,14 @@ export async function executeFallbackInNodeWorker(options, logger) {
     },
   });
 
-  const lifecycleFailure = new Promise((_, reject) => {
-    onError = (err) => {
-      reject(err instanceof Error ? err : new Error(String(err)));
-    };
-    onExit = (code) => {
-      if (code !== 0) {
-        reject(new Error(`Worker exited with code ${code}`));
-      }
-    };
-    nodeWorker.on('error', onError);
-    nodeWorker.on('exit', onExit);
-  });
-
   try {
-    const value = await Promise.race([
-      worker.execute({
-        code: options?.code,
-        filename: options?.filename,
-        state: options?.state,
-        globals: options?.globals,
-        timeout: timeoutMs,
-      }),
-      lifecycleFailure,
-    ]);
+    const value = await worker.execute({
+      code: options?.code,
+      filename: options?.filename,
+      state: options?.state,
+      globals: options?.globals,
+      timeout: timeoutMs,
+    });
 
     return {
       ok: true,
@@ -478,13 +446,11 @@ export async function executeFallbackInNodeWorker(options, logger) {
       mode: 'node-worker',
     };
   } finally {
-    detachLifecycleListeners();
     try {
       worker.terminate();
     } catch {
       // ignore
     }
-    nodeWorker = null;
   }
 }
 

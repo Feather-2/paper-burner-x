@@ -22,6 +22,10 @@ function createMockWorker() {
       const fns = listeners.get('message');
       if (fns) for (const fn of fns) fn({ data });
     },
+    _emit(event, payload) {
+      const fns = listeners.get(event);
+      if (fns) for (const fn of fns) fn(payload);
+    },
     terminate: vi.fn(),
     _messages: [],
     _lastMessage: null,
@@ -143,6 +147,14 @@ describe('worker-comlink', () => {
       const p = api.execute('slow-method');
       await expect(p).rejects.toThrow('Worker call timeout: execute');
       api.terminate();
+    });
+
+    it('rejects pending calls when worker exits unexpectedly', async () => {
+      const api = wrapWorker({ worker, timeout: 1000 });
+      const p = api.execute('1+1');
+      worker._emit('exit', { code: 12 });
+      await expect(p).rejects.toThrow('Worker exited with code 12');
+      expect(api.terminated).toBe(true);
     });
   });
 

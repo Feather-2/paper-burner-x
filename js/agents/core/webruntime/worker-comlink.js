@@ -20,6 +20,26 @@ const MSG_RETURN = 'comlink:return';
 const MSG_CONSOLE = 'comlink:console';
 
 /**
+ * @param {any} value
+ * @param {string} fallback
+ * @returns {string}
+ */
+function toErrorMessage(value, fallback) {
+  if (value instanceof Error && typeof value.message === 'string' && value.message) {
+    return value.message;
+  }
+  if (typeof value === 'string' && value) return value;
+  if (value && typeof value.message === 'string' && value.message) return value.message;
+  try {
+    const text = String(value);
+    if (text && text !== '[object Object]') return text;
+  } catch {
+    // ignore
+  }
+  return fallback;
+}
+
+/**
  * Wrap a Worker with an async RPC proxy.
  * @param {ComlinkWorkerConfig} config
  * @returns {WorkerApi & { terminate: () => void, terminated: boolean }}
@@ -29,6 +49,27 @@ export function wrapWorker(config) {
   let terminated = false;
   let nextId = 1;
   const pending = new Map();
+
+  function rejectPending(reason) {
+    for (const [, p] of pending) {
+      clearTimeout(p.timer);
+      p.reject(new Error(reason));
+    }
+    pending.clear();
+  }
+
+  function detachListeners() {
+    worker.removeEventListener('message', onMessage);
+    worker.removeEventListener('error', onError);
+    worker.removeEventListener('exit', onExit);
+  }
+
+  function failWorker(reason) {
+    if (terminated) return;
+    terminated = true;
+    detachListeners();
+    rejectPending(reason);
+  }
 
   function onMessage(e) {
     const d = e.data;
@@ -45,7 +86,29 @@ export function wrapWorker(config) {
       onConsole(d.method, d.args);
     }
   }
+
+  function onError(e) {
+    const errorLike = e?.error ?? e?.message ?? e;
+    const fallback = typeof e?.message === 'string' && e.message ? e.message : 'Worker error';
+    failWorker(toErrorMessage(errorLike, fallback));
+  }
+
+  function onExit(e) {
+    const rawCode = e?.code;
+    const parsedCode = typeof rawCode === 'number' ? rawCode : Number(rawCode);
+    const code = Number.isFinite(parsedCode) ? parsedCode : 0;
+    if (code === 0 && pending.size === 0) {
+      if (terminated) return;
+      terminated = true;
+      detachListeners();
+      return;
+    }
+    failWorker(`Worker exited with code ${code}`);
+  }
+
   worker.addEventListener('message', onMessage);
+  worker.addEventListener('error', onError);
+  worker.addEventListener('exit', onExit);
 
   function call(method, args) {
     if (terminated) {
@@ -78,12 +141,8 @@ export function wrapWorker(config) {
     terminate() {
       if (terminated) return;
       terminated = true;
-      worker.removeEventListener('message', onMessage);
-      for (const [, p] of pending) {
-        clearTimeout(p.timer);
-        p.reject(new Error('Worker terminated'));
-      }
-      pending.clear();
+      detachListeners();
+      rejectPending('Worker terminated');
       if (typeof worker.terminate === 'function') worker.terminate();
     },
     get terminated() { return terminated; },
