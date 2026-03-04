@@ -6,7 +6,7 @@
  */
 
 // @ts-ignore
-import { parentPort } from 'node:worker_threads';
+import { parentPort, workerData } from 'node:worker_threads';
 // @ts-ignore
 import * as vm from 'node:vm';
 
@@ -47,6 +47,221 @@ const BLOCK_PATTERNS = [
   /\brequire\s*\(/,
   /\bprocess\b/,
 ];
+
+const DEFAULT_MAX_ARRAY_BUFFER_BYTES = 64 * 1024 * 1024;
+const GUARDED_TYPED_ARRAYS = [
+  'Int8Array',
+  'Uint8Array',
+  'Uint8ClampedArray',
+  'Int16Array',
+  'Uint16Array',
+  'Int32Array',
+  'Uint32Array',
+  'Float32Array',
+  'Float64Array',
+];
+
+/**
+ * @param {unknown} value
+ * @returns {number}
+ */
+function normalizeNonNegativeInteger(value) {
+  if (typeof value === 'bigint') {
+    if (value <= 0n) return 0;
+    const bounded = value > BigInt(Number.MAX_SAFE_INTEGER) ? BigInt(Number.MAX_SAFE_INTEGER) : value;
+    return Number(bounded);
+  }
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(Number.MAX_SAFE_INTEGER, Math.floor(n));
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+function normalizeByteLimit(value, fallback) {
+  const normalized = normalizeNonNegativeInteger(value);
+  return normalized > 0 ? normalized : fallback;
+}
+
+/**
+ * @param {number} value
+ * @returns {number}
+ */
+function safeByteFloor(value) {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  if (value >= Number.MAX_SAFE_INTEGER) return Number.MAX_SAFE_INTEGER;
+  return Math.floor(value);
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number}
+ */
+function estimateArrayLikeLength(value) {
+  if (!value || typeof value !== 'object') return 0;
+  if (!Object.prototype.hasOwnProperty.call(value, 'length') && !('length' in value)) return 0;
+  return normalizeNonNegativeInteger(value.length);
+}
+
+/**
+ * @param {any[]} args
+ * @param {number} bytesPerElement
+ * @returns {number}
+ */
+function estimateTypedArrayAllocationBytes(args, bytesPerElement) {
+  if (!Array.isArray(args) || args.length === 0) return 0;
+  const source = args[0];
+
+  if (source instanceof ArrayBuffer) return 0;
+  if (typeof SharedArrayBuffer !== 'undefined' && source instanceof SharedArrayBuffer) return 0;
+  if (ArrayBuffer.isView(source)) {
+    const arrayLikeLength = estimateArrayLikeLength(source);
+    if (arrayLikeLength > 0) return safeByteFloor(arrayLikeLength * bytesPerElement);
+    return safeByteFloor(source.byteLength);
+  }
+
+  if (typeof source === 'number' || typeof source === 'bigint') {
+    return safeByteFloor(normalizeNonNegativeInteger(source) * bytesPerElement);
+  }
+
+  if (source && typeof source === 'object') {
+    return safeByteFloor(estimateArrayLikeLength(source) * bytesPerElement);
+  }
+
+  return 0;
+}
+
+/**
+ * @param {{ maxArrayBufferBytes: number, maxTotalArrayBufferBytes: number }} limits
+ * @param {{ blockedAllocations: Array<{ kind: string, requestedBytes: number, message: string }>, totalArrayBufferBytes: number }} audit
+ */
+function createAllocationGuard(limits, audit) {
+  let totalAllocatedBytes = 0;
+
+  /**
+   * @param {number} requestedBytes
+   * @param {string} kind
+   */
+  const assertAllocation = (requestedBytes, kind) => {
+    const bytes = normalizeNonNegativeInteger(requestedBytes);
+    if (bytes === 0) return;
+
+    if (bytes > limits.maxArrayBufferBytes) {
+      const message = `${kind} allocation (${bytes} bytes) exceeds sandbox limit (${limits.maxArrayBufferBytes} bytes)`;
+      if (audit.blockedAllocations.length < 16) {
+        audit.blockedAllocations.push({ kind, requestedBytes: bytes, message });
+      }
+      throw new RangeError(message);
+    }
+
+    if (totalAllocatedBytes + bytes > limits.maxTotalArrayBufferBytes) {
+      const attempted = totalAllocatedBytes + bytes;
+      const message = `${kind} cumulative allocation (${attempted} bytes) exceeds sandbox total limit (${limits.maxTotalArrayBufferBytes} bytes)`;
+      if (audit.blockedAllocations.length < 16) {
+        audit.blockedAllocations.push({ kind, requestedBytes: bytes, message });
+      }
+      throw new RangeError(message);
+    }
+
+    totalAllocatedBytes += bytes;
+    audit.totalArrayBufferBytes = totalAllocatedBytes;
+  };
+
+  return {
+    /**
+     * @param {unknown} size
+     */
+    assertArrayBuffer(size) {
+      assertAllocation(size, 'ArrayBuffer');
+    },
+
+    /**
+     * @param {any[]} args
+     * @param {number} bytesPerElement
+     * @param {string} name
+     */
+    assertTypedArray(args, bytesPerElement, name) {
+      const estimatedBytes = estimateTypedArrayAllocationBytes(args, bytesPerElement);
+      assertAllocation(estimatedBytes, name);
+    },
+  };
+}
+
+/**
+ * @param {Function} ctor
+ * @param {{ assertArrayBuffer: (size: unknown) => void, assertTypedArray: (args: any[], bytesPerElement: number, name: string) => void }} guard
+ * @returns {Function}
+ */
+function wrapArrayBufferConstructor(ctor, guard) {
+  /** @type {Function} */
+  let proxy;
+  proxy = new Proxy(ctor, {
+    construct(target, args, newTarget) {
+      guard.assertArrayBuffer(args?.[0]);
+      return Reflect.construct(target, args, newTarget === proxy ? target : newTarget);
+    },
+  });
+  return proxy;
+}
+
+/**
+ * @param {Function} ctor
+ * @param {{ assertArrayBuffer: (size: unknown) => void, assertTypedArray: (args: any[], bytesPerElement: number, name: string) => void }} guard
+ * @returns {Function}
+ */
+function wrapTypedArrayConstructor(ctor, guard) {
+  const bytesPerElement = normalizeNonNegativeInteger(ctor?.BYTES_PER_ELEMENT) || 1;
+  const ctorName = String(ctor?.name || 'TypedArray');
+
+  /** @type {Function} */
+  let proxy;
+  proxy = new Proxy(ctor, {
+    construct(target, args, newTarget) {
+      guard.assertTypedArray(Array.isArray(args) ? args : [], bytesPerElement, ctorName);
+      return Reflect.construct(target, args, newTarget === proxy ? target : newTarget);
+    },
+  });
+  return proxy;
+}
+
+const WORKER_SANDBOX_LIMITS = (() => {
+  const defaults = {
+    maxArrayBufferBytes: DEFAULT_MAX_ARRAY_BUFFER_BYTES,
+    maxTotalArrayBufferBytes: DEFAULT_MAX_ARRAY_BUFFER_BYTES,
+  };
+
+  const configured = workerData && typeof workerData === 'object' && workerData.sandboxLimits && typeof workerData.sandboxLimits === 'object'
+    ? workerData.sandboxLimits
+    : null;
+  if (!configured) return defaults;
+
+  const maxArrayBufferBytes = normalizeByteLimit(configured.maxArrayBufferBytes, defaults.maxArrayBufferBytes);
+  const maxTotalArrayBufferBytes = normalizeByteLimit(configured.maxTotalArrayBufferBytes, maxArrayBufferBytes);
+
+  return { maxArrayBufferBytes, maxTotalArrayBufferBytes };
+})();
+
+/**
+ * @param {unknown} requestLimits
+ * @returns {{ maxArrayBufferBytes: number, maxTotalArrayBufferBytes: number }}
+ */
+function resolveExecutionLimits(requestLimits) {
+  if (!requestLimits || typeof requestLimits !== 'object') return WORKER_SANDBOX_LIMITS;
+
+  const maxArrayBufferBytes = normalizeByteLimit(
+    requestLimits.maxArrayBufferBytes,
+    WORKER_SANDBOX_LIMITS.maxArrayBufferBytes
+  );
+  const maxTotalArrayBufferBytes = normalizeByteLimit(
+    requestLimits.maxTotalArrayBufferBytes,
+    maxArrayBufferBytes
+  );
+
+  return { maxArrayBufferBytes, maxTotalArrayBufferBytes };
+}
 
 /**
  * @param {string} code
@@ -133,15 +348,26 @@ function createSandboxProxy(base, audit) {
  * @param {unknown} state
  * @param {{ blockedAccesses: Set<string> }} audit
  * @param {unknown} [globals]
+ * @param {{ maxArrayBufferBytes: number, maxTotalArrayBufferBytes: number }} limits
  * @returns {any}
  */
-function createRestrictedGlobals(state, audit, globals) {
+function createRestrictedGlobals(state, audit, globals, limits) {
   const restricted = Object.create(null);
+  const allocationGuard = createAllocationGuard(limits, audit);
 
   for (const key of ALLOWED_GLOBALS) {
     if (key in globalThis) {
       restricted[key] = globalThis[key];
     }
+  }
+
+  if (typeof restricted.ArrayBuffer === 'function') {
+    restricted.ArrayBuffer = wrapArrayBufferConstructor(restricted.ArrayBuffer, allocationGuard);
+  }
+  for (const ctorName of GUARDED_TYPED_ARRAYS) {
+    const ctor = restricted[ctorName];
+    if (typeof ctor !== 'function') continue;
+    restricted[ctorName] = wrapTypedArrayConstructor(ctor, allocationGuard);
   }
 
   // 注入上下文
@@ -213,7 +439,12 @@ async function handleExecute(data) {
   const startTime = Date.now();
   /** @type {ReturnType<typeof setTimeout> | null} */
   let timeoutId = null;
-  const audit = { blockedAccesses: new Set() };
+  const executionLimits = resolveExecutionLimits(data?.limits);
+  const audit = {
+    blockedAccesses: new Set(),
+    blockedAllocations: [],
+    totalArrayBufferBytes: 0,
+  };
 
   try {
     postToHost({
@@ -223,6 +454,7 @@ async function handleExecute(data) {
       payload: {
         codeLength: typeof code === 'string' ? code.length : 0,
         timeoutMs: timeout,
+        limits: executionLimits,
       },
     });
 
@@ -245,7 +477,7 @@ async function handleExecute(data) {
     }
 
     const timeoutMs = Math.max(0, Number(timeout) || 0);
-    const sandbox = createRestrictedGlobals(state, audit, globals);
+    const sandbox = createRestrictedGlobals(state, audit, globals, executionLimits);
     const timeoutPromise = timeoutMs > 0
       ? new Promise((_, reject) => {
           timeoutId = setTimeout(() => {
@@ -264,19 +496,37 @@ async function handleExecute(data) {
       id,
       success: true,
       data: result,
-      metrics: { duration: Date.now() - startTime, timeoutMs },
+      metrics: {
+        duration: Date.now() - startTime,
+        timeoutMs,
+        arrayBufferBytes: audit.totalArrayBufferBytes,
+      },
     });
   } catch (err) {
     if (timeoutId) clearTimeout(timeoutId);
     const message = err instanceof Error ? err.message : String(err);
     const timedOut = /timed?\s*out|execution timeout/i.test(message);
+    const blocked = /sandbox (?:total )?limit/i.test(message);
+    if (blocked) {
+      postToHost({
+        type: 'audit',
+        id,
+        event: 'blocked',
+        payload: { reason: message },
+      });
+    }
 
     postToHost({
       type: 'result',
       id,
       success: false,
       error: timedOut ? message : message,
-      metrics: { duration: Date.now() - startTime, timedOut },
+      metrics: {
+        duration: Date.now() - startTime,
+        timedOut,
+        blocked,
+        arrayBufferBytes: audit.totalArrayBufferBytes,
+      },
     });
   } finally {
     postToHost({
@@ -286,6 +536,9 @@ async function handleExecute(data) {
       payload: {
         duration: Date.now() - startTime,
         blockedGlobals: Array.from(audit.blockedAccesses),
+        arrayBufferBytes: audit.totalArrayBufferBytes,
+        blockedAllocations: audit.blockedAllocations,
+        limits: executionLimits,
       },
     });
   }

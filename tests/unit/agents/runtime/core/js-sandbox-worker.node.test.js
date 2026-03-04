@@ -255,6 +255,63 @@ describe('js-sandbox-worker.node (worker entry script)', () => {
     expect(result).toMatchObject({ type: 'result', success: true, data: 'done' });
   });
 
+  it('blocks oversized ArrayBuffer allocations via sandbox byte limits', async () => {
+    const { listeners, messages } = sharedPort;
+    await importFresh();
+    expect(typeof listeners.message).toBe('function');
+
+    messages.length = 0;
+    await execute(listeners, {
+      type: 'execute',
+      id: 9,
+      code: 'const buf = new ArrayBuffer(2048); return buf.byteLength;',
+      timeout: 1000,
+      limits: {
+        maxArrayBufferBytes: 1024,
+        maxTotalArrayBufferBytes: 2048,
+      },
+    });
+
+    const result = findLast(messages, 'result');
+    expect(result?.success).toBe(false);
+    expect(result?.metrics?.blocked).toBe(true);
+    expect(String(result?.error || '')).toMatch(/arraybuffer allocation/i);
+    expect(String(result?.error || '')).toMatch(/sandbox limit/i);
+
+    const blockedAudit = findAll(messages, 'audit').find((m) => m?.event === 'blocked');
+    expect(String(blockedAudit?.payload?.reason || '')).toMatch(/arraybuffer allocation/i);
+  });
+
+  it('blocks cumulative typed array allocations that exceed total limit', async () => {
+    const { listeners, messages } = sharedPort;
+    await importFresh();
+    expect(typeof listeners.message).toBe('function');
+
+    messages.length = 0;
+    await execute(listeners, {
+      type: 'execute',
+      id: 10,
+      code: 'const a = new Uint8Array(900); const b = new Uint8Array(700); return a.byteLength + b.byteLength;',
+      timeout: 1000,
+      limits: {
+        maxArrayBufferBytes: 1200,
+        maxTotalArrayBufferBytes: 1500,
+      },
+    });
+
+    const result = findLast(messages, 'result');
+    expect(result?.success).toBe(false);
+    expect(result?.metrics?.blocked).toBe(true);
+    expect(String(result?.error || '')).toMatch(/cumulative allocation/i);
+    expect(String(result?.error || '')).toMatch(/sandbox total limit/i);
+
+    const endAudit = findAll(messages, 'audit').at(-1);
+    expect(endAudit?.event).toBe('end');
+    expect(endAudit?.payload?.arrayBufferBytes).toBe(900);
+    expect(Array.isArray(endAudit?.payload?.blockedAllocations)).toBe(true);
+    expect(endAudit?.payload?.blockedAllocations?.[0]?.kind).toBe('Uint8Array');
+  });
+
   it('swallows parentPort.postMessage errors (emit path)', async () => {
     const { port, listeners, messages, throwOnTypes } = sharedPort;
     throwOnTypes.add('emit');

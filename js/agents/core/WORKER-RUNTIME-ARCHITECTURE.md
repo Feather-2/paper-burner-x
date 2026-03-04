@@ -262,23 +262,21 @@ const worker = new Worker(workerPath, {
 
 ## 11. 代码审查发现的潜在风险
 
-### 11.1 资源限制绕过风险 🔴 高优先级
+### 11.1 资源限制绕过风险 ✅ 已修复（ArrayBuffer 外部内存）
 
-**问题**：`resourceLimits` 只限制 V8 堆内存，无法防止大 `ArrayBuffer` 分配绕过限制。
+**问题**：`resourceLimits` 只限制 V8 堆内存，无法防止大 `ArrayBuffer`（external memory）分配绕过限制。
 
-**证据**：
-- 资源限制设置：`skill-sandbox.js:302`
-- Worker 允许 `ArrayBuffer`：`js-sandbox-worker.node.js:14`
-- 实测：分配 200MB `ArrayBuffer` 仍返回成功（`ok: true`），说明 64MB 限制并非硬上限
+**修复方案（Option A）**：
+- 在 `skill-sandbox.js` 创建 Node Worker 时，额外注入 `workerData.sandboxLimits`。
+- 在 `js-sandbox-worker.node.js` 内部包装 `ArrayBuffer` 与常见 TypedArray 构造器，执行前做字节级配额校验：
+  - `maxArrayBufferBytes`：单次分配上限
+  - `maxTotalArrayBufferBytes`：单次执行累计分配上限
+- 超限时抛出 `RangeError` 并返回 `blocked` 结果，审计日志记录 `blockedAllocations`。
 
-**影响**：
-- 仍存在内存打爆/DoS 风险
-- 特别是在 fallback 路径中
-
-**建议**：
-- 考虑添加额外的内存监控机制
-- 或者在 Worker 内部添加 ArrayBuffer 大小检查
-- 或者接受这个限制，作为已知风险记录
+**修复结果**：
+- ✅ 200MB `ArrayBuffer` 分配不再可绕过（会被 Worker 内部校验拒绝）
+- ✅ 新增单测覆盖超大单次分配与累计分配超限路径
+- ✅ 保持与现有 `resourceLimits` 兼容，作为第二道防线
 
 ### 11.2 Node 版本兼容性问题 🟡 中优先级
 
@@ -361,9 +359,8 @@ const worker = new Worker(workerPath, {
 
 ## 总结
 
-代码审查发现了 6 个潜在风险，其中：
-- 🔴 高优先级：1 个（资源限制绕过）
-- 🟡 中优先级：4 个（Node 版本兼容性、测试覆盖范围、事件处理不完整、测试重复）
+代码审查发现了 5 个潜在风险，其中：
+- 🟡 中优先级：3 个（Node 版本兼容性、测试覆盖范围、事件处理不完整）
 - 🟢 低优先级：2 个（内存泄漏风险、测试重复）
 
 所有测试在当前环境下（Node v22.19.0）均通过（30/30），功能可用。但上述兼容性和边缘风险需要在后续版本中逐步解决。

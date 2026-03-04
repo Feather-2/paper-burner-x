@@ -306,6 +306,12 @@ export async function executeFallbackInNodeWorker(options, logger) {
     maxYoungGenerationSizeMb: standardMemoryMb,
     codeRangeSizeMb: standardMemoryMb,
   };
+  const maxOldGenerationBytes = workerResourceLimits.maxOldGenerationSizeMb * 1024 * 1024;
+  const sandboxLimits = {
+    // V8 resourceLimits does not cap external ArrayBuffer memory; enforce it in worker code.
+    maxArrayBufferBytes: maxOldGenerationBytes,
+    maxTotalArrayBufferBytes: maxOldGenerationBytes,
+  };
 
   // Dynamic import for Node.js worker_threads
   // @ts-ignore - Node-only module; this package is type-checked without Node types.
@@ -318,6 +324,7 @@ export async function executeFallbackInNodeWorker(options, logger) {
   try {
     nodeWorker = new Worker(workerPath, {
       resourceLimits: workerResourceLimits,
+      workerData: { sandboxLimits },
     });
   } catch (err) {
     throw new Error(`Failed to create Node worker: ${err?.message}`);

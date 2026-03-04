@@ -22,6 +22,7 @@ const poolState = vi.hoisted(() => ({
 
 const workerThreadsState = vi.hoisted(() => ({
   behavior: 'success',
+  lastOptions: null,
 }));
 
 vi.mock('../../../../../js/agents/shared/index.js', () => ({
@@ -68,16 +69,17 @@ vi.mock('../../../../../js/agents/core/sandbox/pool.js', () => {
 
 vi.mock('node:worker_threads', () => {
   class FakeWorker {
-    constructor() {
+    constructor(_filename, options = {}) {
       if (workerThreadsState.behavior === 'ctor-throw') {
         throw new Error('worker ctor failed');
       }
+      workerThreadsState.lastOptions = options;
       this.handlers = {};
     }
     on(event, handler) {
       this.handlers[event] = handler;
     }
-    postMessage() {
+    postMessage(payload) {
       if (workerThreadsState.behavior === 'post-throw') {
         throw new Error('postMessage failed');
       }
@@ -91,6 +93,7 @@ vi.mock('node:worker_threads', () => {
       }
       this.handlers.message?.({
         type: 'result',
+        id: payload?.id,
         success: true,
         data: 7,
         metrics: { duration: 1 },
@@ -121,6 +124,7 @@ beforeEach(() => {
   sharedMocks.isNodeLike.mockReturnValue(true);
   sharedMocks.createLogger.mockImplementation(() => createSilentLogger());
   workerThreadsState.behavior = 'success';
+  workerThreadsState.lastOptions = null;
 });
 
 describe('isWasmSupported', () => {
@@ -797,6 +801,10 @@ describe('SkillExecutor', () => {
     expect(res.ok).toBe(true);
     expect(res.value).toBe(7);
     expect(res.mode).toBe('node-worker');
+    expect(workerThreadsState.lastOptions?.workerData?.sandboxLimits).toEqual({
+      maxArrayBufferBytes: ResourceLimits.STANDARD.memoryLimit * 8,
+      maxTotalArrayBufferBytes: ResourceLimits.STANDARD.memoryLimit * 8,
+    });
   });
 });
 
