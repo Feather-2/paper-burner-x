@@ -295,23 +295,20 @@ const worker = new Worker(workerPath, {
   - 不支持版本：不传 `resourceLimits` 且会打 warning
   - 文件：`js/agents/core/sandbox/__tests__/skill-sandbox-resource-limits.test.js`
 
-### 11.3 测试覆盖范围问题 🟡 中优先级
+### 11.3 测试覆盖范围问题 ✅ 已修复
 
-**问题**：新增测试默认不在 `npm run test:agents` 的执行范围内。
+**原问题**：新增测试默认不在 `npm run test:agents` 的执行范围内。
 
-**证据**：
-- 测试脚本只跑 `tests/unit/agents` 与 `tests/integration/agents`：`package.json:38`
-- 新增测试在 `js/**/__tests__`：
-  - `skill-sandbox-resource-limits.test.js`
-  - `skill-sandbox-unified-comlink.test.js`
-  - `worker-pool.test.js`
+**修复方案**：
+- 更新 `package.json` 的 `test:agents` 脚本，保留原有：
+  - `tests/unit/agents`
+  - `tests/integration/agents`
+- 新增 `js/agents` 路径过滤；结合 Vitest include 规则覆盖 co-located 测试：
+  - `js/agents/**/__tests__/**/*.test.js`
 
-**影响**：
-- 这些修复的回归保护可能不会进入主 CI 流程
-
-**建议**：
-- 更新 `package.json` 的测试脚本，包含 `js/**/__tests__` 目录
-- 或者将测试移动到 `tests/unit/agents` 目录
+**修复结果**：
+- ✅ `npm run test:agents` 可同时执行目录型测试与 `js/agents/**/__tests__` 下测试
+- ✅ 新增修复相关回归测试进入主测试命令范围
 
 ### 11.4 事件处理不完整 🟡 中优先级
 
@@ -361,8 +358,8 @@ const worker = new Worker(workerPath, {
 ## 总结
 
 代码审查发现了 5 个潜在风险，其中：
-- ✅ 已修复：1 个（Node 版本兼容性）
-- 🟡 中优先级：2 个（测试覆盖范围、事件处理不完整）
+- ✅ 已修复：2 个（Node 版本兼容性、测试覆盖范围）
+- 🟡 中优先级：1 个（事件处理不完整）
 - 🟢 低优先级：2 个（内存泄漏风险、测试重复）
 
-所有测试在当前环境下（Node v22.19.0）均通过（30/30），功能可用。剩余风险集中在测试覆盖范围与事件处理边界，建议后续版本继续收敛。
+本次已确认 `npm run test:agents` 纳入 `js/agents/**/__tests__` 覆盖范围。当前剩余风险主要集中在事件处理边界与测试维护成本；另有历史测试失败需独立处理（与覆盖范围修复无关）。
