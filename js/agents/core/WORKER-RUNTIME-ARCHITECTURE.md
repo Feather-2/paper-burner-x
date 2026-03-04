@@ -214,13 +214,13 @@ Worker 运行时用于在 Agent 微内核中提供隔离执行能力，核心目
 
 ## 10. 已知问题与改进建议
 
-### 10.1 资源限制未生效（高优先级）
+### 10.1 资源限制未生效 ✅ 已修复（commit 175cce11）
 
 **问题**：`ResourceLimits` 在 `constants.js` 中定义了三个预设（LIGHT/STANDARD/HEAVY），但 `skill-sandbox.js:332` 创建 Node Worker 时**没有传递** `resourceLimits` 参数。
 
 **影响**：Node Worker 没有内存和 CPU 时间限制，可能导致资源耗尽。
 
-**建议**：在创建 Worker 时应用 `resourceLimits`：
+**修复方案**：在创建 Worker 时应用 `resourceLimits`：
 
 ```javascript
 const worker = new Worker(workerPath, {
@@ -232,7 +232,12 @@ const worker = new Worker(workerPath, {
 });
 ```
 
-### 10.2 通信层不统一（中优先级）
+**修复状态**：
+- ✅ 已在 `skill-sandbox.js` 中应用 `ResourceLimits.STANDARD`
+- ✅ 创建测试验证资源限制生效（`skill-sandbox-resource-limits.test.js`，2/2 通过）
+- ✅ 提交：175cce11 fix(agents): 应用 Node Worker 资源限制
+
+### 10.2 通信层不统一 ✅ 已修复（commit 435e1c33）
 
 **问题**：Node 侧和浏览器侧使用不同的通信模式：
 - 浏览器侧：使用 `worker-comlink.js` 的完整 RPC 抽象
@@ -240,4 +245,21 @@ const worker = new Worker(workerPath, {
 
 **影响**：增加维护成本，代码不一致。
 
-**建议**：统一使用 `worker-comlink.js` 风格的 RPC 通信层，适配 Node.js `worker_threads` 的消息 API。
+**修复方案**：统一使用 `worker-comlink.js` 风格的 RPC 通信层，适配 Node.js `worker_threads` 的消息 API。
+
+**修复状态**：
+- ✅ 创建 `worker-comlink-node.js` 适配器，统一 Node 和浏览器 Worker 通信
+- ✅ 重构 `skill-sandbox.js` 使用 `wrapNodeWorker` 替代原生消息传递
+- ✅ 创建测试验证统一通信层（`skill-sandbox-unified-comlink.test.js`，4/4 通过）
+- ✅ 提交：435e1c33 feat(agents): 统一 Node 和浏览器 Worker 通信层
+
+### 10.3 测试覆盖补充 ✅ 已完成（commit 4d1eb65e）
+
+**补充内容**：
+- ✅ 为 `worker-pool.js` 创建完整测试（`worker-pool.test.js`，10/10 通过）
+- ✅ 覆盖池创建、任务执行、优雅关闭、优先级调度、空闲回收、并发限制、超时处理、统计信息
+- ✅ 提交：4d1eb65e test(agents): 补充 Worker Pool 完整测试
+
+## 总结
+
+所有已知问题已修复，Worker 运行时架构现已完整实现并通过测试验证。
