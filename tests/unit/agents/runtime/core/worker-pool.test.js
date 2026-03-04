@@ -20,14 +20,62 @@ vi.mock("../../../../../js/agents/runtime/core/worker-rpc.js", () => {
   class WorkerRpcClient {
     constructor(options) {
       this.options = options;
+      this._worker = null;
+      this._workerPromise = null;
+      this._pendingRejectors = new Set();
+      this._ensureWorker = () => {
+        if (this._worker) return Promise.resolve(this._worker);
+        if (this._workerPromise) return this._workerPromise;
+        this._workerPromise = Promise.resolve()
+          .then(() => this.options.createWorker?.())
+          .then((worker) => {
+            if (!worker) {
+              throw new Error("createWorker returned no worker");
+            }
+            this._worker = worker;
+            return worker;
+          })
+          .finally(() => {
+            this._workerPromise = null;
+          });
+        return this._workerPromise;
+      };
+
       this.call = vi.fn((method, params, opts) => {
-        const impl = callQueue.shift();
-        if (impl) {
-          return impl(method, params, opts, this);
-        }
-        return Promise.resolve(undefined);
+        return new Promise((resolve, reject) => {
+          const rejectPending = (reason = "Worker terminated") => reject(new Error(reason));
+          this._pendingRejectors.add(rejectPending);
+
+          const cleanup = () => {
+            this._pendingRejectors.delete(rejectPending);
+          };
+
+          this._ensureWorker()
+            .then(() => {
+              const impl = callQueue.shift();
+              if (impl) {
+                return impl(method, params, opts, this);
+              }
+              return undefined;
+            })
+            .then((result) => {
+              cleanup();
+              resolve(result);
+            })
+            .catch((err) => {
+              cleanup();
+              reject(err);
+            });
+        });
       });
-      this.terminate = vi.fn();
+      this.terminate = vi.fn((reason = "Worker terminated") => {
+        for (const rejectPending of this._pendingRejectors) {
+          rejectPending(reason);
+        }
+        this._pendingRejectors.clear();
+        this._worker = null;
+        this._workerPromise = null;
+      });
       workerRpcInstances.push(this);
     }
   }
@@ -62,6 +110,7 @@ const createDeferred = () => {
 };
 
 const totalCallCount = () => workerRpcInstances.reduce((sum, instance) => sum + instance.call.mock.calls.length, 0);
+const createWorkerFactory = () => vi.fn(() => ({ id: "worker" }));
 
 beforeEach(() => {
   workerRpcInstances.length = 0;
@@ -90,7 +139,7 @@ describe("WorkerPool", () => {
   it("requires a createWorker function or scriptUrl", () => {
     expect(() => new WorkerPool()).toThrow("WorkerPool requires createWorker function or scriptUrl");
     expect(() => new WorkerPool({ scriptUrl: "worker.js" })).not.toThrow();
-    expect(() => new WorkerPool({ createWorker: vi.fn() })).not.toThrow();
+    expect(() => new WorkerPool({ createWorker: createWorkerFactory() })).not.toThrow();
   });
 
   it("uses default worker factory when scriptUrl is provided", async () => {
@@ -131,8 +180,40 @@ describe("WorkerPool", () => {
     pool.close();
   });
 
+  it("propagates createWorker failures and retries creation on the next task", async () => {
+    const createWorker = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error("createWorker failed");
+      })
+      .mockImplementation(() => ({ id: "worker" }));
+    const pool = new WorkerPool({ createWorker, maxWorkers: 1 });
+
+    await expect(pool.exec("first", { value: 1 })).rejects.toThrow("createWorker failed");
+    expect(pool.stats.total).toBe(1);
+    expect(pool.stats.busy).toBe(0);
+
+    await expect(pool.exec("second", { value: 2 })).resolves.toBeUndefined();
+    expect(createWorker).toHaveBeenCalledTimes(2);
+
+    pool.close();
+  });
+
+  it("rejects when createWorker resolves to no worker instance", async () => {
+    const pool = new WorkerPool({
+      createWorker: vi.fn(() => null),
+      maxWorkers: 1,
+    });
+
+    await expect(pool.exec("missing-worker", { value: 1 })).rejects.toThrow("createWorker returned no worker");
+    expect(pool.stats.total).toBe(1);
+    expect(pool.stats.busy).toBe(0);
+
+    pool.close();
+  });
+
   it("reports stats for busy, idle, and queued tasks", async () => {
-    const pool = new WorkerPool({ createWorker: vi.fn(), maxWorkers: 1 });
+    const pool = new WorkerPool({ createWorker: createWorkerFactory(), maxWorkers: 1 });
     pool.warmup(1);
 
     expect(pool.stats).toEqual({
@@ -166,13 +247,13 @@ describe("WorkerPool", () => {
   });
 
   it("rejects exec calls when closed", async () => {
-    const pool = new WorkerPool({ createWorker: vi.fn() });
+    const pool = new WorkerPool({ createWorker: createWorkerFactory() });
     pool.close();
     await expect(pool.exec("method", {})).rejects.toThrow("WorkerPool is closed");
   });
 
   it("treats a second-argument options object as options only", async () => {
-    const pool = new WorkerPool({ createWorker: vi.fn(), maxWorkers: 1 });
+    const pool = new WorkerPool({ createWorker: createWorkerFactory(), maxWorkers: 1 });
 
     await pool.exec("method", { timeoutMs: 321, priority: TaskPriority.HIGH });
 
@@ -186,7 +267,7 @@ describe("WorkerPool", () => {
   });
 
   it("passes boundary values through to the worker client", async () => {
-    const pool = new WorkerPool({ createWorker: vi.fn(), maxWorkers: 1 });
+    const pool = new WorkerPool({ createWorker: createWorkerFactory(), maxWorkers: 1 });
     const deepNested = { level1: { level2: { level3: { value: "x" } } } };
     const longString = "a".repeat(10000);
     const largeFileLike = {
@@ -231,7 +312,7 @@ describe("WorkerPool", () => {
   });
 
   it("prioritizes queued tasks by priority value", async () => {
-    const pool = new WorkerPool({ createWorker: vi.fn(), maxWorkers: 1 });
+    const pool = new WorkerPool({ createWorker: createWorkerFactory(), maxWorkers: 1 });
     const deferred = createDeferred();
     callQueue.push(() => deferred.promise);
 
@@ -250,7 +331,7 @@ describe("WorkerPool", () => {
   });
 
   it("limits concurrency and queues tasks beyond maxWorkers", async () => {
-    const pool = new WorkerPool({ createWorker: vi.fn(), maxWorkers: 2 });
+    const pool = new WorkerPool({ createWorker: createWorkerFactory(), maxWorkers: 2 });
     const deferred1 = createDeferred();
     const deferred2 = createDeferred();
     callQueue.push(() => deferred1.promise);
@@ -275,7 +356,7 @@ describe("WorkerPool", () => {
   });
 
   it("rejects when the abort signal is already aborted", async () => {
-    const pool = new WorkerPool({ createWorker: vi.fn() });
+    const pool = new WorkerPool({ createWorker: createWorkerFactory() });
     const controller = new AbortController();
     controller.abort();
 
@@ -284,7 +365,7 @@ describe("WorkerPool", () => {
   });
 
   it("aborts queued tasks when the signal fires", async () => {
-    const pool = new WorkerPool({ createWorker: vi.fn(), maxWorkers: 1 });
+    const pool = new WorkerPool({ createWorker: createWorkerFactory(), maxWorkers: 1 });
     const deferred = createDeferred();
     callQueue.push(() => deferred.promise);
 
@@ -305,7 +386,7 @@ describe("WorkerPool", () => {
   });
 
   it("propagates worker call errors", async () => {
-    const pool = new WorkerPool({ createWorker: vi.fn(), maxWorkers: 1 });
+    const pool = new WorkerPool({ createWorker: createWorkerFactory(), maxWorkers: 1 });
     callQueue.push(() => Promise.reject(new Error("boom")));
 
     await expect(pool.exec("explode", {})).rejects.toThrow("boom");
@@ -316,7 +397,7 @@ describe("WorkerPool", () => {
   it("cleans up idle workers and reschedules idle checks", () => {
     vi.useFakeTimers();
     const pool = new WorkerPool({
-      createWorker: vi.fn(),
+      createWorker: createWorkerFactory(),
       maxWorkers: 2,
       idleTimeoutMs: 1000,
     });
@@ -343,12 +424,57 @@ describe("WorkerPool", () => {
     pool.close();
   });
 
-  it("closes workers and rejects queued tasks", async () => {
-    const pool = new WorkerPool({ createWorker: vi.fn(), maxWorkers: 1 });
+  it("drains gracefully by finishing running work and rejecting queued tasks", async () => {
+    const pool = new WorkerPool({ createWorker: createWorkerFactory(), maxWorkers: 1 });
     const deferred = createDeferred();
     callQueue.push(() => deferred.promise);
 
     const running = pool.exec("running", { value: 1 });
+    const signal = {
+      aborted: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    const queued = pool.exec("queued", { value: 2 }, { signal });
+
+    const drainPromise = pool.drain(1000);
+
+    await expect(queued).rejects.toThrow("WorkerPool draining");
+    expect(signal.removeEventListener).toHaveBeenCalled();
+
+    deferred.resolve("done");
+    await expect(running).resolves.toBe("done");
+    await drainPromise;
+
+    expect(workerRpcInstances[0].terminate).toHaveBeenCalledWith("pool drained");
+    expect(pool.stats.total).toBe(0);
+    await expect(pool.exec("after-drain", {})).rejects.toThrow("WorkerPool is closed");
+  });
+
+  it("forces drain completion on timeout by terminating busy workers", async () => {
+    vi.useFakeTimers();
+    const pool = new WorkerPool({ createWorker: createWorkerFactory(), maxWorkers: 1 });
+    callQueue.push(() => new Promise(() => {}));
+
+    const running = pool.exec("running", { value: 1 }).catch((error) => error);
+    const drainPromise = pool.drain(10);
+
+    await vi.advanceTimersByTimeAsync(10);
+    await drainPromise;
+
+    expect(workerRpcInstances[0].terminate).toHaveBeenCalledWith("pool drained");
+    const runningError = await running;
+    expect(runningError).toBeInstanceOf(Error);
+    expect(runningError.message).toContain("pool drained");
+    expect(pool.stats.total).toBe(0);
+  });
+
+  it("closes workers and rejects queued tasks", async () => {
+    const pool = new WorkerPool({ createWorker: createWorkerFactory(), maxWorkers: 1 });
+    const deferred = createDeferred();
+    callQueue.push(() => deferred.promise);
+
+    const running = pool.exec("running", { value: 1 }).catch((error) => error);
     const signal = {
       aborted: false,
       addEventListener: vi.fn(),
@@ -365,8 +491,9 @@ describe("WorkerPool", () => {
     expect(workerRpcInstances[0].terminate).toHaveBeenCalledWith("pool closed");
     expect(pool.stats.total).toBe(0);
 
-    deferred.resolve("done");
-    await running;
+    const runningError = await running;
+    expect(runningError).toBeInstanceOf(Error);
+    expect(runningError.message).toContain("pool closed");
 
     await expect(pool.exec("after-close", {})).rejects.toThrow("WorkerPool is closed");
   });

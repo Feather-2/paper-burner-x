@@ -341,26 +341,31 @@ const worker = new Worker(workerPath, {
 - ✅ 新增回归测试覆盖重复注册场景：
   - `tests/unit/agents/core/webruntime/worker-comlink-node.test.js`
 
-### 11.6 测试重复问题 🟢 低优先级
+### 11.6 测试重复问题 ✅ 已修复（2026-03-04）
 
-**问题**：WorkerPool 新增测试与已有单测重复度较高，且仍有缺口。
+**原问题**：WorkerPool 新增测试与已有单测重复度较高，且仍有缺口。
 
-**证据**：
-- 新增测试：`js/agents/runtime/core/__tests__/worker-pool.test.js`
-- 已有测试：`tests/unit/agents/runtime/core/worker-pool.test.js`
+**修复方案**：
+- 将 WorkerPool 测试统一收敛到 `tests/unit/agents/runtime/core/worker-pool.test.js`。
+- 删除重复文件 `js/agents/runtime/core/__tests__/worker-pool.test.js`。
+- 在集中测试中补齐边缘路径：
+  - `createWorker` 失败场景（抛错、返回空 worker）。
+  - `drain()` 超时强制终止路径。
+  - `drain()` 正常优雅路径（运行中任务完成、排队任务拒绝）。
 
-**影响**：
-- 测试维护成本增加
-- 部分边缘情况仍未覆盖（如 `createWorker` 失败、`drain` 超时强制路径）
-
-**建议**：
-- 合并重复的测试
-- 补充缺失的边缘情况测试
+**修复结果**：
+- ✅ WorkerPool 仅保留一份主测试文件，消除重复维护点。
+- ✅ 覆盖架构文档中指出的缺失边界场景。
+- ✅ 保留并扩展原有优先级、并发、abort、idle cleanup、close 等核心回归。
 
 ## 总结
 
-代码审查发现了 6 个潜在风险，其中：
-- ✅ 已修复：5 个（资源限制绕过、Node 版本兼容性、测试覆盖范围、事件处理不完整、内存泄漏风险）
-- 🟢 低优先级：1 个（测试重复问题）
+代码审查发现的 6 个潜在风险均已闭环修复：
+- ✅ 资源限制绕过风险
+- ✅ Node 版本兼容性问题
+- ✅ 测试覆盖范围问题
+- ✅ 事件处理不完整
+- ✅ 内存泄漏风险
+- ✅ 测试重复问题
 
-本次已确认 `npm run test:agents` 纳入 `js/agents/**/__tests__` 覆盖范围。当前剩余风险主要集中在事件处理边界与测试维护成本；另有历史测试失败需独立处理（与覆盖范围修复无关）。
+当前 Worker 运行时风险项以文档中已记录问题为准，后续如出现新增风险应继续按同一审计流程补充记录与回归测试。
