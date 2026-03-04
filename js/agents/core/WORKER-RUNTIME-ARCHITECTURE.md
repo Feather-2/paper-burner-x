@@ -260,6 +260,110 @@ const worker = new Worker(workerPath, {
 - ✅ 覆盖池创建、任务执行、优雅关闭、优先级调度、空闲回收、并发限制、超时处理、统计信息
 - ✅ 提交：4d1eb65e test(agents): 补充 Worker Pool 完整测试
 
+## 11. 代码审查发现的潜在风险
+
+### 11.1 资源限制绕过风险 🔴 高优先级
+
+**问题**：`resourceLimits` 只限制 V8 堆内存，无法防止大 `ArrayBuffer` 分配绕过限制。
+
+**证据**：
+- 资源限制设置：`skill-sandbox.js:302`
+- Worker 允许 `ArrayBuffer`：`js-sandbox-worker.node.js:14`
+- 实测：分配 200MB `ArrayBuffer` 仍返回成功（`ok: true`），说明 64MB 限制并非硬上限
+
+**影响**：
+- 仍存在内存打爆/DoS 风险
+- 特别是在 fallback 路径中
+
+**建议**：
+- 考虑添加额外的内存监控机制
+- 或者在 Worker 内部添加 ArrayBuffer 大小检查
+- 或者接受这个限制，作为已知风险记录
+
+### 11.2 Node 版本兼容性问题 🟡 中优先级
+
+**问题**：`resourceLimits` 不是所有 Node 版本都支持，旧版本会直接创建 Worker 失败。
+
+**证据**：
+- 创建时强依赖 `resourceLimits`：`skill-sandbox.js:319`
+- 失败后会退回主线程 eval 路径：`skill-sandbox.js:127`
+
+**影响**：
+- 在较旧 Node 上，隔离能力退化（从 worker 隔离退到主线程 fallback）
+
+**建议**：
+- 添加 Node 版本检测
+- 在不支持 resourceLimits 的版本中优雅降级（不传递该参数）
+- 或者在文档中明确最低 Node 版本要求
+
+### 11.3 测试覆盖范围问题 🟡 中优先级
+
+**问题**：新增测试默认不在 `npm run test:agents` 的执行范围内。
+
+**证据**：
+- 测试脚本只跑 `tests/unit/agents` 与 `tests/integration/agents`：`package.json:38`
+- 新增测试在 `js/**/__tests__`：
+  - `skill-sandbox-resource-limits.test.js`
+  - `skill-sandbox-unified-comlink.test.js`
+  - `worker-pool.test.js`
+
+**影响**：
+- 这些修复的回归保护可能不会进入主 CI 流程
+
+**建议**：
+- 更新 `package.json` 的测试脚本，包含 `js/**/__tests__` 目录
+- 或者将测试移动到 `tests/unit/agents` 目录
+
+### 11.4 事件处理不完整 🟡 中优先级
+
+**问题**：Node 适配层对 `exit` 没有统一处理，依赖调用方额外补生命周期监听。
+
+**证据**：
+- 适配层只处理 `message/error`：`worker-comlink-node.js:122`
+- RPC 层只消费 `message` frame：`worker-comlink.js:33`
+
+**影响**：
+- 当前 `skill-sandbox` 自己补了 `exit/error` 监听，所以当下可用
+- 但 `wrapNodeWorker` 作为公共导出时，其他调用点容易踩坑
+
+**建议**：
+- 在 `wrapNodeWorker` 中统一处理 `exit` 事件
+- 或者在文档中明确说明调用方需要自行处理 `exit` 事件
+
+### 11.5 内存泄漏风险 🟢 低优先级
+
+**问题**：`createWorkerAdapter` 对同一 handler 重复 `addEventListener` 会覆盖 map entry，旧 wrapped listener 可能残留。
+
+**证据**：`worker-comlink-node.js:131`
+
+**影响**：
+- 在正常使用场景下不太可能触发
+- 但在异常场景下可能导致内存泄漏
+
+**建议**：
+- 添加检查，如果 handler 已存在则先移除旧的 listener
+
+### 11.6 测试重复问题 🟢 低优先级
+
+**问题**：WorkerPool 新增测试与已有单测重复度较高，且仍有缺口。
+
+**证据**：
+- 新增测试：`js/agents/runtime/core/__tests__/worker-pool.test.js`
+- 已有测试：`tests/unit/agents/runtime/core/worker-pool.test.js`
+
+**影响**：
+- 测试维护成本增加
+- 部分边缘情况仍未覆盖（如 `createWorker` 失败、`drain` 超时强制路径）
+
+**建议**：
+- 合并重复的测试
+- 补充缺失的边缘情况测试
+
 ## 总结
 
-所有已知问题已修复，Worker 运行时架构现已完整实现并通过测试验证。
+代码审查发现了 6 个潜在风险，其中：
+- 🔴 高优先级：1 个（资源限制绕过）
+- 🟡 中优先级：4 个（Node 版本兼容性、测试覆盖范围、事件处理不完整、测试重复）
+- 🟢 低优先级：2 个（内存泄漏风险、测试重复）
+
+所有测试在当前环境下（Node v22.19.0）均通过（30/30），功能可用。但上述兼容性和边缘风险需要在后续版本中逐步解决。
