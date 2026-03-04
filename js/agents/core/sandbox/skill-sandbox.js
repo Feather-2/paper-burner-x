@@ -13,6 +13,49 @@ import {
 } from './skill-executor-helpers.js';
 import { wrapNodeWorker } from '../webruntime/worker-comlink-node.js';
 
+const NODE_WORKER_RESOURCE_LIMITS_MIN_VERSION = Object.freeze({
+  major: 12,
+  minor: 16,
+  patch: 0,
+});
+
+/**
+ * @param {string} version
+ * @returns {{ major: number, minor: number, patch: number } | null}
+ */
+function parseNodeVersion(version) {
+  if (typeof version !== 'string' || version.trim().length === 0) return null;
+
+  const [majorPart = '0', minorPart = '0', patchPart = '0'] = version.trim().split('.');
+  const major = Number.parseInt(majorPart, 10);
+  const minor = Number.parseInt(minorPart, 10);
+  const patch = Number.parseInt(patchPart, 10);
+
+  if (!Number.isInteger(major) || major < 0) return null;
+  if (!Number.isInteger(minor) || minor < 0) return null;
+  if (!Number.isInteger(patch) || patch < 0) return null;
+  return { major, minor, patch };
+}
+
+/**
+ * Node worker_threads `resourceLimits` support starts from v12.16.0.
+ *
+ * @param {string | undefined} nodeVersion
+ * @returns {boolean}
+ */
+export function supportsNodeWorkerResourceLimits(nodeVersion = globalThis.process?.versions?.node) {
+  const parsed = parseNodeVersion(nodeVersion || '');
+  if (!parsed) return false;
+
+  if (parsed.major !== NODE_WORKER_RESOURCE_LIMITS_MIN_VERSION.major) {
+    return parsed.major > NODE_WORKER_RESOURCE_LIMITS_MIN_VERSION.major;
+  }
+  if (parsed.minor !== NODE_WORKER_RESOURCE_LIMITS_MIN_VERSION.minor) {
+    return parsed.minor > NODE_WORKER_RESOURCE_LIMITS_MIN_VERSION.minor;
+  }
+  return parsed.patch >= NODE_WORKER_RESOURCE_LIMITS_MIN_VERSION.patch;
+}
+
 /**
  * 确保 WASM 沙箱池已初始化（若当前环境不支持 WASM，则返回 null）。
  *
@@ -317,15 +360,30 @@ export async function executeFallbackInNodeWorker(options, logger) {
   // @ts-ignore - Node-only module; this package is type-checked without Node types.
   const { Worker } = await import(/* @vite-ignore */ 'node:worker_threads');
   const workerPath = new URL('../../runtime/core/js-sandbox-worker.node.js', import.meta.url);
+  const nodeVersion = globalThis.process?.versions?.node;
+  const supportsResourceLimits = supportsNodeWorkerResourceLimits(nodeVersion);
+  const workerOptions = {
+    workerData: { sandboxLimits },
+  };
+
+  if (supportsResourceLimits) {
+    workerOptions.resourceLimits = workerResourceLimits;
+  } else {
+    try {
+      logger.warn('Node worker resourceLimits unsupported on this Node version; creating worker without resourceLimits', {
+        nodeVersion: typeof nodeVersion === 'string' ? nodeVersion : 'unknown',
+        minSupportedVersion: '12.16.0',
+      });
+    } catch {
+      // ignore
+    }
+  }
 
   // @ts-ignore - Node-only type; this package is type-checked without Node types.
   /** @type {import('node:worker_threads').Worker | null} */
   let nodeWorker = null;
   try {
-    nodeWorker = new Worker(workerPath, {
-      resourceLimits: workerResourceLimits,
-      workerData: { sandboxLimits },
-    });
+    nodeWorker = new Worker(workerPath, workerOptions);
   } catch (err) {
     throw new Error(`Failed to create Node worker: ${err?.message}`);
   }

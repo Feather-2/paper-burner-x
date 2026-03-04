@@ -2,6 +2,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { ResourceLimits } from '../constants.js';
 
+const originalNodeVersionDescriptor = Object.getOwnPropertyDescriptor(process.versions, 'node');
+
+function setNodeVersionForTest(version) {
+  Object.defineProperty(process.versions, 'node', {
+    configurable: true,
+    enumerable: true,
+    value: version,
+  });
+}
+
+function restoreNodeVersionForTest() {
+  if (!originalNodeVersionDescriptor) return;
+  Object.defineProperty(process.versions, 'node', originalNodeVersionDescriptor);
+}
+
 function createSilentLogger() {
   return {
     debug: vi.fn(),
@@ -18,14 +33,25 @@ describe('skill-sandbox resource limits', () => {
   });
 
   afterEach(() => {
+    restoreNodeVersionForTest();
     vi.doUnmock('node:worker_threads');
     vi.restoreAllMocks();
     vi.resetModules();
   });
 
+  it('detects Node versions that support worker resourceLimits', async () => {
+    const { supportsNodeWorkerResourceLimits } = await import('../skill-sandbox.js');
+
+    expect(supportsNodeWorkerResourceLimits('12.15.0')).toBe(false);
+    expect(supportsNodeWorkerResourceLimits('12.16.0')).toBe(true);
+    expect(supportsNodeWorkerResourceLimits('14.0.0')).toBe(true);
+    expect(supportsNodeWorkerResourceLimits('invalid')).toBe(false);
+  });
+
   it('applies resource limits when creating a Node worker', async () => {
     /** @type {{ options?: { resourceLimits?: Record<string, number> } }} */
     const capture = {};
+    setNodeVersionForTest('12.16.0');
 
     vi.doMock('node:worker_threads', () => {
       class FakeWorker {
@@ -61,12 +87,13 @@ describe('skill-sandbox resource limits', () => {
     });
 
     const { executeFallbackInNodeWorker } = await import('../skill-sandbox.js');
+    const logger = createSilentLogger();
     const result = await executeFallbackInNodeWorker(
       {
         code: 'return "test";',
         timeoutMs: 5000,
       },
-      createSilentLogger()
+      logger
     );
 
     const standardMemoryMb = ResourceLimits.STANDARD.memoryLimit / (1024 * 1024);
@@ -76,6 +103,74 @@ describe('skill-sandbox resource limits', () => {
       maxYoungGenerationSizeMb: standardMemoryMb,
       codeRangeSizeMb: standardMemoryMb,
     });
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('falls back without resourceLimits on unsupported Node versions', async () => {
+    /** @type {{ options?: { resourceLimits?: Record<string, number>, workerData?: Record<string, any> } }} */
+    const capture = {};
+    setNodeVersionForTest('12.15.0');
+
+    vi.doMock('node:worker_threads', () => {
+      class FakeWorker {
+        constructor(_filename, options = {}) {
+          capture.options = options;
+          this.handlers = {};
+        }
+
+        on(event, handler) {
+          this.handlers[event] = handler;
+        }
+
+        off(event) {
+          delete this.handlers[event];
+        }
+
+        postMessage(payload) {
+          this.handlers.message?.({
+            type: 'result',
+            id: payload?.id,
+            success: true,
+            data: 'fallback',
+            metrics: { duration: 1 },
+          });
+        }
+
+        terminate() {
+          return Promise.resolve(0);
+        }
+      }
+
+      return { Worker: FakeWorker };
+    });
+
+    const { executeFallbackInNodeWorker } = await import('../skill-sandbox.js');
+    const logger = createSilentLogger();
+    const result = await executeFallbackInNodeWorker(
+      {
+        code: 'return "fallback";',
+        timeoutMs: 5000,
+      },
+      logger
+    );
+
+    const standardMemoryMb = ResourceLimits.STANDARD.memoryLimit / (1024 * 1024);
+    const maxOldGenerationBytes = standardMemoryMb * 8 * 1024 * 1024;
+    expect(result.ok).toBe(true);
+    expect(capture.options?.resourceLimits).toBeUndefined();
+    expect(capture.options?.workerData).toEqual({
+      sandboxLimits: {
+        maxArrayBufferBytes: maxOldGenerationBytes,
+        maxTotalArrayBufferBytes: maxOldGenerationBytes,
+      },
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Node worker resourceLimits unsupported on this Node version; creating worker without resourceLimits',
+      expect.objectContaining({
+        nodeVersion: '12.15.0',
+        minSupportedVersion: '12.16.0',
+      })
+    );
   });
 
   it('respects memory limits for memory-intensive code', async () => {

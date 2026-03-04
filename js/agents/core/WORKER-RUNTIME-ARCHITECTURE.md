@@ -278,21 +278,22 @@ const worker = new Worker(workerPath, {
 - ✅ 新增单测覆盖超大单次分配与累计分配超限路径
 - ✅ 保持与现有 `resourceLimits` 兼容，作为第二道防线
 
-### 11.2 Node 版本兼容性问题 🟡 中优先级
+### 11.2 Node 版本兼容性问题 ✅ 已修复
 
-**问题**：`resourceLimits` 不是所有 Node 版本都支持，旧版本会直接创建 Worker 失败。
+**原问题**：`resourceLimits` 不是所有 Node 版本都支持，旧版本会在创建 Worker 时失败。
 
-**证据**：
-- 创建时强依赖 `resourceLimits`：`skill-sandbox.js:319`
-- 失败后会退回主线程 eval 路径：`skill-sandbox.js:127`
+**修复方案**：
+- 在 `skill-sandbox.js` 增加 Node 版本检测（使用 `process.versions.node`）。
+- 判定规则：`>= 12.16.0` 才传递 `resourceLimits`。
+- 旧版本降级：仅传递 `workerData`，不传 `resourceLimits`，并记录 warning 日志。
 
-**影响**：
-- 在较旧 Node 上，隔离能力退化（从 worker 隔离退到主线程 fallback）
-
-**建议**：
-- 添加 Node 版本检测
-- 在不支持 resourceLimits 的版本中优雅降级（不传递该参数）
-- 或者在文档中明确最低 Node 版本要求
+**修复状态**：
+- ✅ 新增 `supportsNodeWorkerResourceLimits()` 版本检测逻辑。
+- ✅ `executeFallbackInNodeWorker()` 已按版本分支创建 Worker。
+- ✅ 增加测试覆盖：
+  - 支持版本：会应用 `resourceLimits`
+  - 不支持版本：不传 `resourceLimits` 且会打 warning
+  - 文件：`js/agents/core/sandbox/__tests__/skill-sandbox-resource-limits.test.js`
 
 ### 11.3 测试覆盖范围问题 🟡 中优先级
 
@@ -360,7 +361,8 @@ const worker = new Worker(workerPath, {
 ## 总结
 
 代码审查发现了 5 个潜在风险，其中：
-- 🟡 中优先级：3 个（Node 版本兼容性、测试覆盖范围、事件处理不完整）
+- ✅ 已修复：1 个（Node 版本兼容性）
+- 🟡 中优先级：2 个（测试覆盖范围、事件处理不完整）
 - 🟢 低优先级：2 个（内存泄漏风险、测试重复）
 
-所有测试在当前环境下（Node v22.19.0）均通过（30/30），功能可用。但上述兼容性和边缘风险需要在后续版本中逐步解决。
+所有测试在当前环境下（Node v22.19.0）均通过（30/30），功能可用。剩余风险集中在测试覆盖范围与事件处理边界，建议后续版本继续收敛。
