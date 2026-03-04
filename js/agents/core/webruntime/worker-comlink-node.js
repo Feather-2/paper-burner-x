@@ -113,6 +113,13 @@ function createWorkerAdapter(nodeWorker) {
       ? (event, handler) => nodeWorker.removeListener(event, handler)
       : () => {};
 
+  const replaceExistingListener = (event, handler, listenerMap) => {
+    const existing = listenerMap.get(handler);
+    if (!existing) return;
+    removeListener(event, existing);
+    listenerMap.delete(handler);
+  };
+
   return {
     postMessage(data) {
       nodeWorker.postMessage(translateOutgoingMessage(data));
@@ -124,6 +131,7 @@ function createWorkerAdapter(nodeWorker) {
       if (typeof handler !== 'function') return;
 
       if (event === 'message') {
+        replaceExistingListener('message', handler, messageListeners);
         const wrapped = (data) => {
           const translated = translateIncomingMessage(data);
           if (!translated) return;
@@ -135,6 +143,7 @@ function createWorkerAdapter(nodeWorker) {
       }
 
       if (event === 'error') {
+        replaceExistingListener('error', handler, errorListeners);
         const wrapped = (error) => {
           handler({ error });
         };
@@ -144,6 +153,7 @@ function createWorkerAdapter(nodeWorker) {
       }
 
       if (event === 'exit') {
+        replaceExistingListener('exit', handler, exitListeners);
         const wrapped = (code) => {
           handler({ code });
         };

@@ -327,18 +327,19 @@ const worker = new Worker(workerPath, {
   - `tests/unit/agents/core/webruntime/worker-comlink.test.js`（`wrapWorker` 提前退出 reject）
   - `js/agents/core/sandbox/__tests__/skill-sandbox-unified-comlink.test.js`（Node fallback 路径 `exit` 错误返回）
 
-### 11.5 内存泄漏风险 🟢 低优先级
+### 11.5 内存泄漏风险 ✅ 已修复
 
-**问题**：`createWorkerAdapter` 对同一 handler 重复 `addEventListener` 会覆盖 map entry，旧 wrapped listener 可能残留。
+**原问题**：`createWorkerAdapter` 对同一 handler 重复 `addEventListener` 会覆盖 map entry，旧 wrapped listener 可能残留。
 
-**证据**：`worker-comlink-node.js:131`
+**修复方案**：
+- 在 `worker-comlink-node.js` 的 `createWorkerAdapter.addEventListener` 中，对 `message/error/exit` 三类事件统一执行重复 handler 检查。
+- 若同一 handler 已存在，先移除旧 wrapped listener，再注册新 wrapped listener。
 
-**影响**：
-- 在正常使用场景下不太可能触发
-- 但在异常场景下可能导致内存泄漏
-
-**建议**：
-- 添加检查，如果 handler 已存在则先移除旧的 listener
+**修复结果**：
+- ✅ 同一 handler 重复注册不再累计 Node Worker 监听器。
+- ✅ `removeEventListener` 在重复注册后仍可完整清理监听器引用。
+- ✅ 新增回归测试覆盖重复注册场景：
+  - `tests/unit/agents/core/webruntime/worker-comlink-node.test.js`
 
 ### 11.6 测试重复问题 🟢 低优先级
 
@@ -358,9 +359,8 @@ const worker = new Worker(workerPath, {
 
 ## 总结
 
-代码审查发现了 5 个潜在风险，其中：
-- ✅ 已修复：2 个（Node 版本兼容性、测试覆盖范围）
-- 🟡 中优先级：1 个（事件处理不完整）
-- 🟢 低优先级：2 个（内存泄漏风险、测试重复）
+代码审查发现了 6 个潜在风险，其中：
+- ✅ 已修复：5 个（资源限制绕过、Node 版本兼容性、测试覆盖范围、事件处理不完整、内存泄漏风险）
+- 🟢 低优先级：1 个（测试重复问题）
 
 本次已确认 `npm run test:agents` 纳入 `js/agents/**/__tests__` 覆盖范围。当前剩余风险主要集中在事件处理边界与测试维护成本；另有历史测试失败需独立处理（与覆盖范围修复无关）。

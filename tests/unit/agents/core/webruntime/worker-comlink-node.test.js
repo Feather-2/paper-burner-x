@@ -263,15 +263,87 @@ describe('worker-comlink-node', () => {
       expect(worker.offCalls).toHaveLength(1);
     });
 
+    it('replaces existing message listener when the same handler is re-added', () => {
+      const worker = new MockNodeWorker();
+      const adapter = createWorkerAdapter(worker);
+      const onMessage = vi.fn();
+
+      adapter.addEventListener('message', onMessage);
+      expect(worker.listenerCount('message')).toBe(1);
+
+      adapter.addEventListener('message', onMessage);
+      expect(worker.listenerCount('message')).toBe(1);
+      expect(worker.offCalls).toHaveLength(1);
+      expect(worker.offCalls[0].event).toBe('message');
+
+      worker.emit('message', {
+        type: 'result',
+        id: 3,
+        success: true,
+        data: 'single-fire',
+      });
+      expect(onMessage).toHaveBeenCalledTimes(1);
+
+      adapter.removeEventListener('message', onMessage);
+      expect(worker.listenerCount('message')).toBe(0);
+    });
+
+    it('replaces existing error listener when the same handler is re-added', () => {
+      const worker = new MockNodeWorker();
+      const adapter = createWorkerAdapter(worker);
+      const onError = vi.fn();
+
+      adapter.addEventListener('error', onError);
+      expect(worker.listenerCount('error')).toBe(1);
+
+      adapter.addEventListener('error', onError);
+      expect(worker.listenerCount('error')).toBe(1);
+      expect(worker.offCalls).toHaveLength(1);
+      expect(worker.offCalls[0].event).toBe('error');
+
+      const err = new Error('only-once');
+      worker.emit('error', err);
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError).toHaveBeenCalledWith({ error: err });
+
+      adapter.removeEventListener('error', onError);
+      expect(worker.listenerCount('error')).toBe(0);
+    });
+
+    it('replaces existing exit listener when the same handler is re-added', () => {
+      const worker = new MockNodeWorker();
+      const adapter = createWorkerAdapter(worker);
+      const onExit = vi.fn();
+
+      adapter.addEventListener('exit', onExit);
+      expect(worker.listenerCount('exit')).toBe(1);
+
+      adapter.addEventListener('exit', onExit);
+      expect(worker.listenerCount('exit')).toBe(1);
+      expect(worker.offCalls).toHaveLength(1);
+      expect(worker.offCalls[0].event).toBe('exit');
+
+      worker.emit('exit', 13);
+      expect(onExit).toHaveBeenCalledTimes(1);
+      expect(onExit).toHaveBeenCalledWith({ code: 13 });
+
+      adapter.removeEventListener('exit', onExit);
+      expect(worker.listenerCount('exit')).toBe(0);
+    });
+
     it('falls back to removeListener when off is unavailable', () => {
       const worker = new MockNodeWorker({ supportsOff: false, supportsRemoveListener: true });
       const adapter = createWorkerAdapter(worker);
       const onMessage = vi.fn();
 
       adapter.addEventListener('message', onMessage);
+      adapter.addEventListener('message', onMessage);
+      expect(worker.listenerCount('message')).toBe(1);
+      expect(worker.removeListenerCalls).toHaveLength(1);
+
       adapter.removeEventListener('message', onMessage);
 
-      expect(worker.removeListenerCalls).toHaveLength(1);
+      expect(worker.removeListenerCalls).toHaveLength(2);
       expect(worker.listenerCount('message')).toBe(0);
     });
   });
