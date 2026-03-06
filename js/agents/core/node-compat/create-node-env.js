@@ -16,6 +16,24 @@ import { setupErrorStackTracePolyfill } from './polyfills/stack-trace.js';
 const logger = createLogger('node-compat/create-node-env');
 
 /**
+ * @param {unknown} value
+ * @returns {value is import('../sandbox/wasm-sandbox.js').WasmSandbox}
+ */
+function isWasmSandbox(value) {
+  const candidate = /** @type {{ dispose?: unknown } | null} */ (value && typeof value === 'object' ? value : null);
+  return typeof candidate?.dispose === 'function';
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is import('../sandbox/sandbox-interface.js').Sandbox}
+ */
+function isUnifiedSandbox(value) {
+  const candidate = /** @type {{ terminate?: unknown } | null} */ (value && typeof value === 'object' ? value : null);
+  return typeof candidate?.terminate === 'function';
+}
+
+/**
  * @typedef {object} NodeEnvConfig
  * @property {string} [cwd='/'] - Working directory
  * @property {Record<string, string>} [env] - Environment variables
@@ -31,10 +49,11 @@ const logger = createLogger('node-compat/create-node-env');
 /**
  * @typedef {object} NodeEnv
  * @property {object} vfs - VFS instance (with events)
- * @property {object} sandbox - Sandbox instance
- * @property {(code: string, filename?: string) => Promise<import('./wasm-sandbox.js').SandboxResult>} execute
- * @property {(path: string) => Promise<import('./wasm-sandbox.js').SandboxResult>} runFile
+ * @property {import('../sandbox/sandbox-interface.js').Sandbox | import('../sandbox/wasm-sandbox.js').WasmSandbox} sandbox - Sandbox instance
+ * @property {(code: string, filename?: string) => Promise<import('../sandbox/wasm-sandbox.js').SandboxResult>} execute
+ * @property {(path: string) => Promise<import('../sandbox/wasm-sandbox.js').SandboxResult>} runFile
  * @property {() => Promise<void>} dispose - Clean up all resources
+ * @property {boolean} terminated - Whether dispose() has been called
  */
 
 /**
@@ -115,7 +134,7 @@ export async function createNodeEnv(config = {}) {
 
   // 4. Convenience methods
   const execute = async (code, filename) => {
-    if (typeof sandbox?.terminate === 'function') {
+    if (isUnifiedSandbox(sandbox)) {
       return sandbox.execute(code, filename);
     }
     return sandbox.execute(code, filename ? { __filename: filename } : {});
@@ -123,7 +142,7 @@ export async function createNodeEnv(config = {}) {
 
   const runFile = async (path) => {
     const content = await vfs.readText(path);
-    if (typeof sandbox?.terminate === 'function') {
+    if (isUnifiedSandbox(sandbox)) {
       return sandbox.execute(content, path);
     }
     return sandbox.execute(content, { __filename: path });
@@ -133,9 +152,9 @@ export async function createNodeEnv(config = {}) {
   const dispose = async () => {
     if (terminated) return;
     terminated = true;
-    if (typeof sandbox?.terminate === 'function') {
+    if (isUnifiedSandbox(sandbox)) {
       await sandbox.terminate();
-    } else {
+    } else if (isWasmSandbox(sandbox)) {
       sandbox.dispose();
     }
     if (typeof vfs?.removeAllListeners === 'function') {

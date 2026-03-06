@@ -9,6 +9,7 @@ const logger = createLogger('node-compat/execution-strategy');
 
 /**
  * @typedef {'wasm'|'iframe'|'eval'|'none'} ExecutionMode
+ * @typedef {Error & { code?: string }} ExecError
  */
 
 /**
@@ -16,6 +17,7 @@ const logger = createLogger('node-compat/execution-strategy');
  * @returns {Promise<ExecutionMode[]>}
  */
 export async function detectAvailableModes() {
+  /** @type {ExecutionMode[]} */
   const modes = [];
 
   // 1. Check WASM support
@@ -24,7 +26,7 @@ export async function detectAvailableModes() {
       await WebAssembly.instantiate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]));
       modes.push('wasm');
     } catch (err) {
-      logger.debug('WASM not available', { error: err.message });
+      logger.debug('WASM not available', { error: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -38,7 +40,7 @@ export async function detectAvailableModes() {
     (0, eval)('1+1');
     modes.push('eval');
   } catch (err) {
-    logger.debug('eval blocked by CSP', { error: err.message });
+    logger.debug('eval blocked by CSP', { error: err instanceof Error ? err.message : String(err) });
   }
 
   return modes;
@@ -78,10 +80,10 @@ export async function selectExecutionMode(config = {}) {
 
 /**
  * @param {string} message
- * @returns {Error}
+ * @returns {ExecError}
  */
 function createAbortError(message = 'Execution aborted') {
-  const error = new Error(message);
+  const error = /** @type {ExecError} */ (new Error(message));
   error.name = 'AbortError';
   error.code = 'ERR_EXEC_ABORTED';
   return error;
@@ -89,10 +91,10 @@ function createAbortError(message = 'Execution aborted') {
 
 /**
  * @param {number} timeoutMs
- * @returns {Error}
+ * @returns {ExecError}
  */
 function createTimeoutError(timeoutMs) {
-  const error = new Error(`Execution timed out after ${timeoutMs}ms`);
+  const error = /** @type {ExecError} */ (new Error(`Execution timed out after ${timeoutMs}ms`));
   error.code = 'ERR_EXEC_TIMEOUT';
   return error;
 }
@@ -109,7 +111,7 @@ function normalizeTimeoutMs(value) {
 
 /**
  * @param {number} timeoutMs
- * @returns {Promise<HTMLBodyElement>}
+ * @returns {Promise<HTMLElement>}
  */
 async function waitForDocumentBody(timeoutMs) {
   if (typeof document === 'undefined') {
@@ -208,7 +210,9 @@ export async function createExecutionContext(mode, options = {}) {
   switch (mode) {
     case 'wasm': {
       const { createSandbox } = await import('../sandbox/wasm-sandbox.js');
-      const sandbox = await createSandbox(options);
+      const sandbox = await createSandbox({
+        limits: defaultTimeoutMs > 0 ? { timeoutMs: defaultTimeoutMs } : undefined,
+      });
       return {
         execute: (code, runOptions = {}) => executeWithControls(
           () => Promise.resolve(sandbox.execute(code)),
@@ -235,7 +239,7 @@ export async function createExecutionContext(mode, options = {}) {
       return {
         execute: (code, runOptions = {}) => executeWithControls(
           () => {
-            const win = iframe.contentWindow;
+            const win = /** @type {(Window & { eval?: typeof globalThis.eval, stop?: () => void }) | null} */ (iframe.contentWindow);
             if (!win || typeof win.eval !== 'function') {
               throw new Error('iframe contentWindow is unavailable');
             }

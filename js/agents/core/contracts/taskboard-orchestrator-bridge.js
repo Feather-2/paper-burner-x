@@ -20,7 +20,9 @@ function num(v, fallback, min = 1) { return typeof v === 'number' && Number.isFi
 /** @param {unknown} obj @param {string} key @returns {boolean} */
 function hasMethod(obj, key) { return !!obj && typeof obj === 'object' && typeof obj[key] === 'function'; }
 /** @param {unknown} error @returns {string} */
-function toError(error) { return str(error?.message) || String(error); }
+function toError(error) { return error instanceof Error ? error.message : (str(error) || String(error)); }
+/** @param {{ ok: true, task: BoardTask } | { ok: false, error: string }} result @returns {result is { ok: false, error: string }} */
+function isFailedTaskResult(result) { return !result.ok; }
 
 export class TaskBoardOrchestratorBridge {
   /** @param {TaskBoardBridgeOptions} options */
@@ -71,7 +73,7 @@ export class TaskBoardOrchestratorBridge {
     if (!id) return { ok: false, error: 'taskId required' };
 
     const claimed = this._taskBoard.claim(id, this._agentId);
-    if (!claimed.ok) return { ok: false, error: claimed.error };
+    if (isFailedTaskResult(claimed)) return { ok: false, error: claimed.error };
 
     const task = claimed.task;
     const stageName = this._taskTypeToStageMap.get(task.taskType) || task.taskType;
@@ -89,7 +91,7 @@ export class TaskBoardOrchestratorBridge {
     try {
       const result = await this._orchestrator.runStage(stageName, { task, payload: task.payload });
       const completed = this._taskBoard.complete(id, result);
-      if (!completed.ok) {
+      if (isFailedTaskResult(completed)) {
         const error = `Task stage succeeded but complete() failed: ${completed.error}`;
         this._emit('bridge:task-failed', { taskId: id, taskType: task.taskType, agentId: this._agentId, error });
         return { ok: false, error, result };
@@ -112,7 +114,7 @@ export class TaskBoardOrchestratorBridge {
     const task = this._taskBoard.listPending()[0];
     if (!task) return { ok: false, error: 'No pending task' };
     const result = await this.claimAndRun(task.id);
-    return { ok: result.ok, taskId: task.id, ...(result.error ? { error: result.error } : {}) };
+    return { ok: result.ok, taskId: task.id, ...(!result.ok && result.error ? { error: result.error } : {}) };
   }
 
   /** @param {{ intervalMs?: number, maxConcurrent?: number }} [options] @returns {() => void} */

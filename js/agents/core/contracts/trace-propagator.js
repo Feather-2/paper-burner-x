@@ -11,6 +11,8 @@ const logger = createLogger('contracts/trace-propagator');
 /** @typedef {{ traceId: string, spanId: string, parentSpanId?: string, traceparent: string }} TraceInfo */
 /** @typedef {Record<string, unknown>} TraceCarrier */
 /** @typedef {{ events?: EventBusLike }} TraceContextPropagatorOptions */
+/** @typedef {{ spanId: string, traceId: string, parentSpanId: string | null, name: string, startTime: number, endTime: number | null, status: string, statusMessage: string | null, traceparent: string, setStatus(status: unknown, message?: unknown): TraceSpan, end(): TraceSpan, recordException(error: unknown): TraceSpan }} TraceSpan */
+/** @typedef {{ traceId: string, parentSpanId: string | null, startSpan(name: string, options?: Record<string, unknown>): TraceSpan, createSpan(name: string, options?: Record<string, unknown>): TraceSpan, endSpan(span?: unknown): void, withSpan(name: string, fn: (span: TraceSpan) => Promise<unknown> | unknown, options?: Record<string, unknown>): Promise<unknown>, getTraceparent(): string, currentSpan: TraceSpan | null }} TraceContextLike */
 
 /** @param {unknown} v @returns {v is Record<string, unknown>} */
 function isRecord(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
@@ -81,7 +83,7 @@ function randomHex(bytes) {
   return out;
 }
 
-/** @param {string} name @param {string} traceId @param {string | null} parentSpanId @param {boolean} sampled @returns {Record<string, unknown>} */
+/** @param {string} name @param {string} traceId @param {string | null} parentSpanId @param {boolean} sampled @returns {TraceSpan} */
 function createSpanLike(name, traceId, parentSpanId, sampled) {
   const spanId = generateSpanId();
   return {
@@ -100,10 +102,10 @@ function createSpanLike(name, traceId, parentSpanId, sampled) {
   };
 }
 
-/** @param {{ traceId: string, parentSpanId?: string, sampled?: boolean }} options @returns {Record<string, unknown>} */
+/** @param {{ traceId: string, parentSpanId?: string, sampled?: boolean }} options @returns {TraceContextLike} */
 function createTraceContextLike({ traceId, parentSpanId, sampled = true }) {
-  /** @type {Record<string, unknown>[]} */ const stack = [];
-  return {
+  /** @type {TraceSpan[]} */ const stack = [];
+  return /** @type {TraceContextLike} */ ({
     traceId,
     parentSpanId: parentSpanId || null,
     startSpan(name, options = {}) {
@@ -116,7 +118,9 @@ function createTraceContextLike({ traceId, parentSpanId, sampled = true }) {
     },
     createSpan(name, options = {}) { return this.startSpan(name, options); },
     endSpan(span) {
-      const target = isRecord(span) ? span : (stack.length > 0 ? stack[stack.length - 1] : null);
+      const target = span && typeof span === 'object' && typeof /** @type {TraceSpan} */ (span).end === 'function'
+        ? /** @type {TraceSpan} */ (span)
+        : (stack.length > 0 ? stack[stack.length - 1] : null);
       if (!target) return;
       target.end();
       const idx = stack.lastIndexOf(target);
@@ -128,7 +132,7 @@ function createTraceContextLike({ traceId, parentSpanId, sampled = true }) {
     },
     getTraceparent() { const active = stack.length > 0 ? stack[stack.length - 1] : null; return active ? String(active.traceparent) : formatTraceparent(traceId, generateSpanId(), sampled); },
     get currentSpan() { return stack.length > 0 ? stack[stack.length - 1] : null; },
-  };
+  });
 }
 
 export class TraceContextPropagator {

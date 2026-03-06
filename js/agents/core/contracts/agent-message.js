@@ -378,7 +378,7 @@ export function validateAgentMessage(msg) {
       case 'status-update': return validateStatusUpdate(o);
       case 'knowledge-share': return validateKnowledgeShare(o);
       default:
-        return { ok: false, error: `AgentMessage.kind: unknown kind "${kind}"` };
+        return /** @type {InvalidResult} */ ({ ok: false, error: `AgentMessage.kind: unknown kind "${kind}"` });
     }
   })();
 

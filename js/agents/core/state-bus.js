@@ -165,7 +165,7 @@ export class StateBus {
     /** @type {EventBus | null} */
     this._events = resolvedOptions.events || null;
 
-    /** @type {import('../archive/archive-core.js').Archive | null} */
+    /** @type {any} */
     this._archive = resolvedOptions.archive || null;
 
     /** @type {string} */

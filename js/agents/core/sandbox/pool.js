@@ -13,6 +13,35 @@ import { createLogger } from "../../shared/index.js";
 const logger = createLogger("core/sandbox/pool");
 
 /**
+ * @typedef {{
+ *   usedJSHeapSize?: number,
+ *   totalJSHeapSize?: number,
+ *   jsHeapSizeLimit?: number
+ * }} PerformanceMemory
+ *
+ * @typedef {Performance & { memory?: PerformanceMemory }} MemoryAwarePerformance
+ *
+ * @typedef {{
+ *   priority?: number,
+ *   capabilities?: string[],
+ *   limits?: object,
+ *   state?: object,
+ *   onLog?: Function,
+ *   onEmit?: Function
+ * }} PoolAcquireOptions
+ *
+ * @typedef {{
+ *   key: string,
+ *   options: PoolAcquireOptions,
+ *   resolve: (sb: WasmSandbox) => void,
+ *   reject: (err: any) => void,
+ *   priority: number,
+ *   timestamp: number,
+ *   timeoutId?: ReturnType<typeof setTimeout> | null
+ * }} WaitQueueEntry
+ */
+
+/**
  * SandboxPool - 沙箱对象池
  */
 export class SandboxPool {
@@ -43,7 +72,7 @@ export class SandboxPool {
     this._pools = new Map();
     this._totalCount = 0;
     this._inUseCount = 0;
-    /** @type {Array<{ key: string, options: any, resolve: (sb: WasmSandbox) => void, reject: (err: any) => void, priority: number, timestamp: number }>} */
+    /** @type {WaitQueueEntry[]} */
     this._waitQueue = [];
     this._draining = false;
     this._disposed = false;
@@ -65,7 +94,10 @@ export class SandboxPool {
     this._memoryBaseline = null;
     /** @type {Set<ReturnType<typeof setTimeout>>} tracks all pending timers for leak-safe disposal */
     this._pendingTimers = new Set();
-    if (this._enableMemoryMonitoring && typeof performance !== 'undefined' && performance.memory) {
+    const memoryAwarePerformance = /** @type {MemoryAwarePerformance | undefined} */ (
+      typeof performance !== 'undefined' ? performance : undefined
+    );
+    if (this._enableMemoryMonitoring && memoryAwarePerformance?.memory) {
       this._startMemoryMonitoring();
     }
 
@@ -119,7 +151,7 @@ export class SandboxPool {
 
   /**
    * 获取沙箱
-   * @param {Object} options
+   * @param {PoolAcquireOptions} options
    * @param {number} [options.priority=0] - 任务优先级（数值越大优先级越高）
    * @returns {Promise<WasmSandbox>}
    */
@@ -532,10 +564,13 @@ export class SandboxPool {
    */
   _startMemoryMonitoring() {
     if (this._disposed || !this._enableMemoryMonitoring || this._memoryCheckTimer) return;
+    const memoryAwarePerformance = /** @type {MemoryAwarePerformance | undefined} */ (
+      typeof performance !== 'undefined' ? performance : undefined
+    );
 
     // 记录基线内存
-    if (typeof performance !== 'undefined' && performance.memory) {
-      this._memoryBaseline = performance.memory.usedJSHeapSize;
+    if (memoryAwarePerformance?.memory) {
+      this._memoryBaseline = memoryAwarePerformance.memory.usedJSHeapSize ?? null;
     }
 
     this._memoryCheckTimer = setInterval(() => {
@@ -543,9 +578,9 @@ export class SandboxPool {
         this._stopMemoryMonitoring();
         return;
       }
-      if (typeof performance === 'undefined' || !performance.memory) return;
+      if (!memoryAwarePerformance?.memory) return;
 
-      const current = performance.memory.usedJSHeapSize;
+      const current = memoryAwarePerformance.memory.usedJSHeapSize ?? 0;
       const baseline = this._memoryBaseline || current;
       const growth = current - baseline;
       const growthRate = baseline > 0 ? growth / baseline : 0;

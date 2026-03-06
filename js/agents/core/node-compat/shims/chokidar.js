@@ -5,12 +5,25 @@
 
 import { EventEmitter } from './events.js';
 
-/** @type {import('../vfs/types.js').VirtualFS | null} */
+/**
+ * @typedef {{
+ *   close(): void
+ * }} VfsWatcher
+ *
+ * @typedef {{
+ *   existsSync(path: string): boolean
+ *   statSync(path: string): { isDirectory(): boolean }
+ *   readdirSync(path: string): string[]
+ *   watch(path: string, options: { recursive?: boolean }, callback: (eventType: string, filename: string) => void): VfsWatcher
+ * }} VirtualFS
+ */
+
+/** @type {VirtualFS | null} */
 let globalVFS = null;
 
 /**
  * Set the global VFS instance
- * @param {import('../vfs/types.js').VirtualFS} vfs
+ * @param {VirtualFS} vfs
  */
 export function setVFS(vfs) {
   globalVFS = vfs;
@@ -32,7 +45,7 @@ export function setVFS(vfs) {
  * @property {boolean | { stabilityThreshold?: number; pollInterval?: number }} [awaitWriteFinish]
  * @property {boolean} [ignorePermissionErrors]
  * @property {boolean | number} [atomic]
- * @property {import('../vfs/types.js').VirtualFS} [vfs]
+ * @property {VirtualFS} [vfs]
  * @property {boolean} [debug]
  * @property {{ debug?: (...args: unknown[]) => void, warn?: (...args: unknown[]) => void }} [logger]
  */
@@ -46,14 +59,14 @@ export class FSWatcher extends EventEmitter {
     /** @type {ChokidarOptions} */
     this.options = options;
 
-    /** @type {import('../vfs/types.js').VirtualFS | null | undefined} */
+    /** @type {VirtualFS | null | undefined} */
     const selectedVfs = options?.vfs || globalVFS;
     if (!selectedVfs) {
       throw new Error('chokidar: VirtualFS not initialized. Call setVFS first.');
     }
-    /** @type {import('../vfs/types.js').VirtualFS} */
+    /** @type {VirtualFS} */
     this.vfs = selectedVfs;
-    /** @type {Map<string, import('../vfs/types.js').FSWatcher>} */
+    /** @type {Map<string, VfsWatcher>} */
     this.watched = new Map();
     /** @type {boolean} */
     this.closed = false;

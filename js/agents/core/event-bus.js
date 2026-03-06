@@ -73,6 +73,7 @@ import {
  *
  * @typedef {CoreEventBusOptions & {
  *   runId?: string | null,
+ *   archive?: any,
  *   persistenceAdapter?: any,
  *   onListenerError?: (err: unknown, evt: EventRecord, fn: Function) => void,
  * }} EventBusOptions
@@ -153,7 +154,7 @@ export class EventBus {
     this._onListenerError = options.onListenerError || null;
 
     // Archive 集成（用于历史持久化）
-    /** @type {import('../archive/archive-core.js').Archive | null} */
+    /** @type {any} */
     this._archive = options.archive || null;
 
     // 等待队列 (用于 waitFor)

@@ -20,26 +20,7 @@ import { checkPackageCompatibility } from '../package-compatibility.js';
  */
 
 /**
- * @typedef {object} EventPayloadMap
- * @property {{ name: string, version: string }} ['install:start']
- * @property {{
- *   name: string,
- *   version: string,
- *   score: number,
- *   threshold: number,
- *   warnings: string[],
- *   blockers: string[]
- * }} ['install:compatibility']
- * @property {{ name: string, version: string, index: number, total: number }} ['install:progress']
- * @property {{ name: string, version: string, deps: number }} ['install:complete']
- * @property {{
- *   name: string,
- *   version: string,
- *   expectedShasum: string,
- *   actualShasum: string,
- *   tarballUrl: string
- * }} ['install:integrity-failed']
- * @property {{ name: string, error: unknown }} ['install:error']
+ * @typedef {Record<string, unknown>} EventPayloadMap
  */
 
 /**
@@ -484,16 +465,16 @@ export class PackageManager extends EventEmitter {
       });
 
       if (strictCompatibility && blockers.length > 0) {
-        const error = new Error(
+        const error = /** @type {Error & { code?: string }} */ (new Error(
           `Compatibility blockers detected for ${name}@${version}: ${blockers.join(', ')}`,
-        );
+        ));
         error.code = 'ERR_COMPATIBILITY_BLOCKED';
         throw error;
       }
       if (strictCompatibility && score < threshold) {
-        const error = new Error(
+        const error = /** @type {Error & { code?: string }} */ (new Error(
           `Compatibility score ${score.toFixed(2)} is below threshold ${threshold.toFixed(2)} for ${name}@${version}`,
-        );
+        ));
         error.code = 'ERR_COMPATIBILITY_SCORE';
         throw error;
       }
@@ -810,6 +791,7 @@ export class PackageManager extends EventEmitter {
         for (const name of entries) {
           const normalizedName = String(name);
           const statPath = `${path.replace(/\/$/, '')}/${normalizedName}`;
+          /** @type {'file'|'dir'} */
           let kind = 'dir';
           try {
             if (typeof this.vfs.stat === 'function') {

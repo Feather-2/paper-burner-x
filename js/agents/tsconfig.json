@@ -21,7 +21,7 @@
     "baseUrl": ".",
 
     // 类型声明
-    "types": [],
+    "types": ["node"],
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
 
     // 兼容性
@@ -47,6 +47,8 @@
   "exclude": [
     "node_modules",
     "**/node_modules",
+    "**/__tests__/**",
+    "**/*.test.js",
     "cli/**",
     "testing/**"
   ]
