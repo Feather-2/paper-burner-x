@@ -11,7 +11,7 @@ import { ORSet } from './or-set.js';
 import { GCounter, PNCounter } from './counters.js';
 
 /** @typedef {import("../types.d.ts").LamportClockState} LamportClockState */
-/** @typedef {{ nextTick: () => LamportClockState }} ClockServiceLike */
+/** @typedef {{ nextTick: () => LamportClockState, sync?: (remoteSeq: number) => void }} ClockServiceLike */
 /** @typedef {{ nodeId?: string, docId?: string, maxOpLogSize?: number, clockService?: ClockServiceLike }} CRDTDocumentOptions */
 /** @typedef {'register' | 'map' | 'set' | 'counter'} CRDTFieldType */
 /** @typedef {{ type: string, [key: string]: unknown }} CounterOpLike */
@@ -359,7 +359,7 @@ export class CRDTDocument {
 
   /**
    * 获取自某版本以来的操作
-   * @param {number} [sinceVersion=0]
+   * @param {number | string} [sinceVersion=0]
    * @returns {CRDTDocumentOp[]}
    */
   getOps(sinceVersion = 0) {

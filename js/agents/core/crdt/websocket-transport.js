@@ -19,8 +19,8 @@ export class WebSocketCrdtTransport {
     this._maxMessageSize = Math.max(1024, options.maxMessageSize || 256 * 1024);
     this._state = ConnectionState.DISCONNECTED;
     /** @type {WebSocket | null} */ this._socket = null;
-    /** @type {number | null} */ this._reconnectTimer = null;
-    /** @type {number | null} */ this._heartbeatTimer = null;
+    /** @type {ReturnType<typeof setTimeout> | null} */ this._reconnectTimer = null;
+    /** @type {ReturnType<typeof setInterval> | null} */ this._heartbeatTimer = null;
     this._reconnectAttempt = 0;
     this._lastPongAt = Date.now();
     this._shouldReconnect = this._reconnect;

@@ -120,7 +120,7 @@ export class RunStoreAdapter {
    * @returns {Promise<any[]>}
    */
   async getEvents(runId) {
-    return this._runStore.getEvents(runId);
+    return /** @type {any} */ (this._runStore).getEvents(runId);
   }
 }
 
@@ -849,15 +849,15 @@ export class EventBus {
         name: 'eventbus:handler:error',
         actor: 'system',
         payload: {
-          error: err?.message || String(err),
+          error: err instanceof Error ? err.message : String(err),
           eventName: evt?.name,
           handlerName: fn?.name || 'anonymous',
-          stack: err?.stack,
+          stack: err instanceof Error ? err.stack : undefined,
         },
         runId: this.runId,
       }));
     } catch (e) {
-      logger.debug("Failed to emit handler error telemetry", { error: e?.message });
+      logger.debug("Failed to emit handler error telemetry", { error: e instanceof Error ? e.message : String(e) });
     }
 
     if (this._onListenerError) {
@@ -865,7 +865,7 @@ export class EventBus {
         this._onListenerError(err, evt, fn);
       } catch (e) { logger.debug("onListenerError handler threw", { error: e?.message }); }
     } else {
-      logger.error("Error in handler", { event: evt?.name, error: err?.message });
+      logger.error("Error in handler", { event: evt?.name, error: err instanceof Error ? err.message : String(err) });
     }
   }
 

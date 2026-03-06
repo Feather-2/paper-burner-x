@@ -420,7 +420,7 @@ export class MessageBus {
 
       const replyTo = meta.replyTo;
       const requestId = meta.requestId;
-      const reqTrace = evt.trace;
+      const reqTrace = /** @type {any} */ (evt).trace;
 
       Promise.resolve()
         .then(() => handler(evt.payload, evt))

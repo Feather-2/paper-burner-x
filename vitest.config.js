@@ -39,6 +39,9 @@ export default defineConfig({
       'tests/unit/**/*.test.js',
       // Integration tests (cross-module)
       'tests/integration/**/*.test.js',
+      // Smoke and end-to-end tests (system startup and critical flows)
+      'tests/smoke/**/*.test.js',
+      'tests/e2e/**/*.test.js',
       // Colocated unit tests
       'js/**/__tests__/**/*.test.js',
     ],

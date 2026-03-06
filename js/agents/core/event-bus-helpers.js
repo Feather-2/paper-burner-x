@@ -296,7 +296,7 @@ export function extractEventDataFields(data) {
   const status = isObject(data) && typeof data.status === 'string' ? data.status : undefined;
   const level = isObject(data) && typeof data.level === 'string' ? data.level : undefined;
   const trace = isObject(data) && isObject(data.trace) && typeof data.trace.traceId === 'string'
-    ? data.trace
+    ? /** @type {Record<string, unknown> & { traceId: string }} */ (data.trace)
     : undefined;
 
   return { payload, meta, actor, status, level, trace };
@@ -307,8 +307,8 @@ export function extractEventDataFields(data) {
  * @returns {LamportClockState | { seq: number } | undefined}
  */
 export function deriveReplayClock(raw) {
-  if (isObject(raw._clock) && typeof raw._clock.seq === 'number') return raw._clock;
-  if (isObject(raw.clock) && typeof raw.clock.seq === 'number') return raw.clock;
+  if (isObject(raw._clock) && typeof raw._clock.seq === 'number') return /** @type {LamportClockState} */ (/** @type {unknown} */ (raw._clock));
+  if (isObject(raw.clock) && typeof raw.clock.seq === 'number') return /** @type {LamportClockState} */ (/** @type {unknown} */ (raw.clock));
   if (typeof raw.seq === 'number') return { seq: raw.seq };
   return undefined;
 }
