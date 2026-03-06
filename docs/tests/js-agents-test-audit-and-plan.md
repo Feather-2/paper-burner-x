@@ -315,6 +315,34 @@ core 内部未覆盖/陈旧热点：
 6. 新建 `tests/smoke/` 与自动化 `tests/e2e/`
 7. 全量回归后，再做一次 `js/agents` 设计质量复盘
 
+## 10. 进度更新（2026-03-07 第一轮）
+
+本轮已经完成的实际改进：
+
+- `tsc` 诊断从 **651** 降到 **442**（减少 **209** 条）
+- `core` 子集测试从 **3128/8 fail** 改善为 **3128/0 fail**
+- 全量 agents 自动化测试从 **20,033 总数 / 37 fail** 变为 **20,037 总数 / 29 fail**
+- 新增自动化 **smoke**：`tests/smoke/agents-startup.smoke.test.js`
+- 新增自动化 **e2e**：`tests/e2e/agents-basic-flow.test.js`
+- `vitest.config.js` 与 `package.json` 已纳入 smoke/e2e 测试入口
+
+本轮完成的核心修复范围：
+
+- 类型基线：`js/agents/tsconfig.json`
+- core 契约与总线：`js/agents/core/contracts/*`、`event-bus*`、`message-bus`
+- node-compat：`create-node-env.js`、`execution-strategy.js`、`npm/index.js`、`polyfills/stack-trace.js`
+- sandbox：`js/agents/core/sandbox/pool.js`、`js/agents/core/node-compat/sandbox-tool.js`
+- 工具执行链：`js/agents/runtime/tools/tool-executor.js`
+
+下一轮优先级不变，但焦点应切到 **非 core 剩余失败**：
+
+1. `tests/unit/agents/plugins/checkpoints/index.test.js`
+2. `tests/unit/agents/runtime/context/subagent-budget.test.js`
+3. `tests/unit/agents/runtime/core/agent-loop-message-handling.test.js`
+4. `tests/integration/agents/platform-tools.test.js`
+5. `tests/integration/agents/skills.test.js`
+6. `tests/unit/agents/shared/index.test.js` / `tests/integration/agents/stages/codesearch/phases-index.vitest.test.js`
+
 ---
 
 > 备注：本文件记录的是 **修复前基线**。后续每完成一个阶段，应更新本文件中的失败数、覆盖空洞和目标比例偏差。

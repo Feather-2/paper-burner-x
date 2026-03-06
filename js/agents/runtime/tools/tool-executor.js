@@ -513,7 +513,15 @@ export class ToolExecutor {
     let onParentAbort = null;
 
     if (timeoutController) {
-      executionContext.signal = timeoutController.signal;
+      Object.defineProperty(executionContext, "signal", {
+        value: timeoutController.signal,
+        enumerable: false,
+        configurable: true,
+        writable: true,
+      });
+    }
+
+    if (timeoutController && parentSignal) {
       onParentAbort = () => {
         try {
           timeoutController.abort(parentSignal?.reason);

@@ -30,9 +30,10 @@ const PREPARED = Symbol('prepared');
  * @param {string} fileName
  * @param {number} line
  * @param {number} col
+ * @param {boolean} [withAtPrefix=false]
  * @returns {CallSite}
  */
-function createCallSite(fnName, fileName, line, col) {
+function createCallSite(fnName, fileName, line, col, withAtPrefix = false) {
   return {
     getFileName: () => fileName,
     getLineNumber: () => line,
@@ -44,7 +45,9 @@ function createCallSite(fnName, fileName, line, col) {
     isToplevel: () => !fnName,
     isConstructor: () => false,
     toString: () =>
-      fnName ? `${fnName} (${fileName}:${line}:${col})` : `${fileName}:${line}:${col}`,
+      withAtPrefix
+        ? (fnName ? `    at ${fnName} (${fileName}:${line}:${col})` : `    at ${fileName}:${line}:${col}`)
+        : (fnName ? `${fnName} (${fileName}:${line}:${col})` : `${fileName}:${line}:${col}`),
   };
 }
 
@@ -66,17 +69,22 @@ function parseStack(stack) {
     // V8: "at functionName (file:line:col)" or "at file:line:col"
     match = trimmed.match(/^at\s+(?:(.+?)\s+\()?(.+?):(\d+):(\d+)\)?$/);
     if (match) {
-      sites.push(createCallSite(match[1] || '', match[2], +match[3], +match[4]));
+      sites.push(createCallSite(match[1] || '', match[2], +match[3], +match[4], true));
       continue;
     }
 
     // Safari/Firefox: "functionName@file:line:col" or "@file:line:col"
     match = trimmed.match(/^(.*)@(.+?):(\d+):(\d+)$/);
     if (match) {
-      sites.push(createCallSite(match[1] || '', match[2], +match[3], +match[4]));
+      sites.push(createCallSite(match[1] || '', match[2], +match[3], +match[4], true));
     }
   }
   return sites;
+}
+
+function formatFrame(site) {
+  const rendered = site.toString();
+  return /^\s*at\s+/.test(rendered) ? rendered : `    at ${rendered}`;
 }
 
 /**
@@ -87,11 +95,8 @@ function parseStack(stack) {
 function installStackTracePolyfill(target = globalThis) {
   const ErrorCtor = target.Error || Error;
 
-  // Native V8 implementation present and not our polyfill — skip
-  if (
-    typeof ErrorCtor.captureStackTrace === 'function' &&
-    !ErrorCtor.captureStackTrace.__polyfill
-  ) {
+  // Native implementation or an already-installed polyfill exists — skip.
+  if (typeof ErrorCtor.captureStackTrace === 'function') {
     return;
   }
 
@@ -128,7 +133,11 @@ function installStackTracePolyfill(target = globalThis) {
         if (typeof ErrorCtor.prepareStackTrace === 'function') {
           this._preparedStack = ErrorCtor.prepareStackTrace(this, sites);
         } else {
-          this._preparedStack = this[RAW_STACK];
+          const name = typeof this.name === 'string' && this.name ? this.name : 'Error';
+          const message = typeof this.message === 'string' ? this.message : '';
+          const header = message ? `${name}: ${message}` : name;
+          const frames = sites.map((site) => formatFrame(site));
+          this._preparedStack = [header, ...frames].join('\n');
         }
         return this._preparedStack;
       },

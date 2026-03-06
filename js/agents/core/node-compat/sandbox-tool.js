@@ -177,6 +177,13 @@ export function createSandboxTool(config = {}) {
     _activeOutput = output;
 
     try {
+      if (install && install.length > 0 && packageManager) {
+        for (const pkg of install) {
+          const { name, version } = parseInstallSpecifier(pkg);
+          await packageManager.install(name, { version: version || 'latest' });
+        }
+      }
+
       if (!runtimeAvailable) {
         return {
           success: false,
@@ -188,13 +195,6 @@ export function createSandboxTool(config = {}) {
       }
 
       const { env: nodeEnv, require: req } = await getEnv();
-
-      if (install && install.length > 0 && packageManager) {
-        for (const pkg of install) {
-          const { name, version } = parseInstallSpecifier(pkg);
-          await packageManager.install(name, { version: version || 'latest' });
-        }
-      }
 
       await nodeEnv.vfs.writeText(filename, code);
 
