@@ -394,6 +394,39 @@ core 内部未覆盖/陈旧热点：
 
 这样可以继续用最小 diff 换最多绿灯。
 
+## 12. 代码质量回看（2026-03-07）
+
+按“不能用 `any`/`unknown` 逃避问题、不能靠降行为换绿灯”的标准，回看了本轮之前提交，确认存在两类需要纠正的修法：
+
+1. **类型逃逸**
+   - `js/agents/core/event-bus.js` 里把 archive 直接放宽成了 `any`
+   - `js/agents/core/state-bus.js` 里把 archive 放宽成了 `any`
+   - `js/agents/core/node-compat/npm/index.js` 里把事件 payload map 压扁成了 `Record<string, unknown>`
+
+2. **风险**
+   - 这些改动虽然能降噪，但会让真实契约丢失，后续继续演化时更容易把错误藏起来
+
+本轮已经把这三处改回**显式契约**：
+
+- `js/agents/core/event-bus.js`
+  - 增加 `EventBusArchive` / `EventBusArchiveSnapshot`
+  - 明确 `list/load/save/delete` 与历史快照结构
+- `js/agents/core/state-bus.js`
+  - 增加 `StateBusArchive` / `StateBusArchiveSnapshot`
+  - 用 `StateRecord` + `asStateRecord()` 做局部收窄，而不是继续放大类型
+- `js/agents/core/node-compat/npm/index.js`
+  - 恢复精确的事件 payload typedef
+  - `EventEmitter` 改为按事件名约束 payload 类型
+
+验证结果：
+
+- `npx tsc -p js/agents/tsconfig.json --pretty false` 中，上述三个文件已不再报错
+- `tests/unit/agents/core/state-bus.test.js`
+- `tests/unit/agents/core/event-bus.test.js`
+- `tests/unit/agents/core/node-compat/npm/index.test.js`
+
+都已回归通过。
+
 ---
 
 > 备注：本文件记录的是 **修复前基线**。后续每完成一个阶段，应更新本文件中的失败数、覆盖空洞和目标比例偏差。

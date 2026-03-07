@@ -40,12 +40,31 @@ function validatePathSegments(path) {
 
 /**
  * @typedef {import('./types').EventBus} EventBus
- * @typedef {import('./types').StateBusOptions} StateBusOptions
+ * @typedef {import('./types').StateBusOptions & {
+ *   archive?: StateBusArchive
+ *   runId?: string
+ * }} StateBusOptions
  * @typedef {import('./types').StateChangeRecord} StateChangeRecord
  * @typedef {(change: StateChangeRecord) => void} StateChangeSubscriber
  * @typedef {(newValue: unknown, oldValue: unknown, path: string) => void} LegacyStateSubscriber
  * @typedef {StateChangeSubscriber | LegacyStateSubscriber} StateSubscriber
+ * @typedef {{ id: string }} StateSnapshotRef
+ * @typedef {{ nodeStates?: Record<string, unknown> }} StateBusArchiveSnapshot
+ * @typedef {{
+ *   list(runId: string): Promise<StateSnapshotRef[]>
+ *   load(checkpointId: string): Promise<StateBusArchiveSnapshot | null>
+ *   save(checkpointId: string, snapshot: { nodeStates: Record<string, unknown>, timestamp?: number | string, metadata?: Record<string, unknown>, schemaVersion?: number | string }): Promise<unknown>
+ *   delete(checkpointId: string): Promise<unknown>
+ * }} StateBusArchive
+ * @typedef {Record<string, unknown>} StateRecord
  */
+/**
+ * @param {unknown} value
+ * @returns {StateRecord | null}
+ */
+function asStateRecord(value) {
+  return value && typeof value === 'object' ? /** @type {StateRecord} */ (value) : null;
+}
 
 /**
  * 订阅选项
@@ -165,13 +184,13 @@ export class StateBus {
     /** @type {EventBus | null} */
     this._events = resolvedOptions.events || null;
 
-    /** @type {any} */
+    /** @type {StateBusArchive | null} */
     this._archive = resolvedOptions.archive || null;
 
     /** @type {string} */
     this._runId = resolvedOptions.runId || `run_${Date.now()}`;
 
-    /** @type {Record<string, any>} */
+    /** @type {Record<string, unknown>} */
     this._state = createDefaultState();
 
     if (this._namespace) {
@@ -180,12 +199,16 @@ export class StateBus {
       if (lastKey) {
         let current = this._state;
         for (const key of nsKeys) {
-          if (current[key] == null || typeof current[key] !== 'object') {
+          const next = asStateRecord(current[key]);
+          if (!next) {
             current[key] = {};
+          } else {
+            current = next;
+            continue;
           }
-          current = current[key];
+          current = /** @type {StateRecord} */ (current[key]);
         }
-        if (current[lastKey] == null || typeof current[lastKey] !== 'object') {
+        if (!asStateRecord(current[lastKey])) {
           current[lastKey] = createDefaultState();
         }
       }
@@ -303,10 +326,14 @@ export class StateBus {
     let current = this._state;
 
     for (const key of keys) {
-      if (current[key] == null || typeof current[key] !== 'object') {
+      const next = asStateRecord(current[key]);
+      if (!next) {
         current[key] = {};
+      } else {
+        current = next;
+        continue;
       }
-      current = current[key];
+      current = /** @type {StateRecord} */ (current[key]);
     }
 
     current[lastKey] = value;
@@ -349,11 +376,11 @@ export class StateBus {
 
     let current = this._state;
     for (const key of keys) {
-      if (current == null || typeof current !== 'object') return false;
-      current = current[key];
+      const next = asStateRecord(current[key]);
+      if (!next) return false;
+      current = next;
     }
 
-    if (current == null || typeof current !== 'object') return false;
     if (!Object.prototype.hasOwnProperty.call(current, lastKey)) return false;
 
     delete current[lastKey];
@@ -768,10 +795,14 @@ export class StateBus {
   _getByPath(path) {
     const keys = validatePathSegments(path);
 
+    /** @type {unknown} */
     let current = this._state;
-    for (const key of keys) {
-      if (current == null || typeof current !== 'object') return undefined;
-      current = current[key];
+    for (let i = 0; i < keys.length; i += 1) {
+      const container = asStateRecord(current);
+      if (!container) return undefined;
+      const next = container[keys[i]];
+      if (i === keys.length - 1) return next;
+      current = next;
     }
     return current;
   }
@@ -789,10 +820,14 @@ export class StateBus {
     if (!lastKey) return;
     let current = this._state;
     for (const key of keys) {
-      if (current[key] == null || typeof current[key] !== 'object') {
+      const next = asStateRecord(current[key]);
+      if (!next) {
         current[key] = {};
+      } else {
+        current = next;
+        continue;
       }
-      current = current[key];
+      current = /** @type {StateRecord} */ (current[key]);
     }
     current[lastKey] = Date.now();
   }

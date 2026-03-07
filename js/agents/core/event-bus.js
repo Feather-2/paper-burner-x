@@ -44,6 +44,27 @@ import {
  */
 
 /**
+ * @typedef {{
+ *   id: string
+ * }} ArchiveCheckpointRef
+ *
+ * @typedef {{
+ *   schemaVersion?: number | string
+ *   events?: EventRecord[]
+ *   payload?: unknown
+ *   timestamp?: number | string
+ *   metadata?: Record<string, unknown>
+ * }} EventBusArchiveSnapshot
+ *
+ * @typedef {{
+ *   list(runId: string): Promise<ArchiveCheckpointRef[]>
+ *   load(checkpointId: string): Promise<EventBusArchiveSnapshot | null>
+ *   save(checkpointId: string, snapshot: EventBusArchiveSnapshot): Promise<unknown>
+ *   delete(checkpointId: string): Promise<unknown>
+ * }} EventBusArchive
+ */
+
+/**
  * EventBus 内部使用的结构化事件记录。
  *
  * 说明：
@@ -73,7 +94,7 @@ import {
  *
  * @typedef {CoreEventBusOptions & {
  *   runId?: string | null,
- *   archive?: any,
+ *   archive?: EventBusArchive,
  *   persistenceAdapter?: any,
  *   onListenerError?: (err: unknown, evt: EventRecord, fn: Function) => void,
  * }} EventBusOptions
@@ -154,7 +175,7 @@ export class EventBus {
     this._onListenerError = options.onListenerError || null;
 
     // Archive 集成（用于历史持久化）
-    /** @type {any} */
+    /** @type {EventBusArchive | null} */
     this._archive = options.archive || null;
 
     // 等待队列 (用于 waitFor)

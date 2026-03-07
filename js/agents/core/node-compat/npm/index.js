@@ -20,7 +20,37 @@ import { checkPackageCompatibility } from '../package-compatibility.js';
  */
 
 /**
- * @typedef {Record<string, unknown>} EventPayloadMap
+ * @typedef {{ name: string, version: string }} InstallStartPayload
+ * @typedef {{
+ *   name: string,
+ *   version: string,
+ *   score: number,
+ *   threshold: number,
+ *   warnings: string[],
+ *   blockers: string[]
+ * }} InstallCompatibilityPayload
+ * @typedef {{ name: string, version: string, index: number, total: number }} InstallProgressPayload
+ * @typedef {{ name: string, version: string, deps: number }} InstallCompletePayload
+ * @typedef {{
+ *   name: string,
+ *   version: string,
+ *   expectedShasum: string,
+ *   actualShasum: string,
+ *   tarballUrl: string
+ * }} InstallIntegrityFailedPayload
+ * @typedef {{ name: string, error: unknown }} InstallErrorPayload
+ *
+ * @typedef {{
+ *   'install:start': InstallStartPayload
+ *   'install:compatibility': InstallCompatibilityPayload
+ *   'install:progress': InstallProgressPayload
+ *   'install:complete': InstallCompletePayload
+ *   'install:integrity-failed': InstallIntegrityFailedPayload
+ *   'install:error': InstallErrorPayload
+ * }} EventPayloadMap
+ *
+ * @typedef {keyof EventPayloadMap} PackageManagerEventName
+ * @typedef {(payload: EventPayloadMap[PackageManagerEventName]) => void} PackageManagerEventListener
  */
 
 /**
@@ -176,14 +206,14 @@ async function invokeCompatibilityChecker(checker, packageJson) {
  */
 export class EventEmitter {
   constructor() {
-    /** @type {Map<string, Set<(payload: any) => void>>} */
+    /** @type {Map<PackageManagerEventName, Set<PackageManagerEventListener>>} */
     this._listeners = new Map();
   }
 
   /**
    * Register event listener.
-   * @param {string} event
-   * @param {(payload: any) => void} listener
+   * @param {PackageManagerEventName} event
+   * @param {PackageManagerEventListener} listener
    * @returns {() => void}
    */
   on(event, listener) {
@@ -194,8 +224,8 @@ export class EventEmitter {
 
   /**
    * Remove event listener.
-   * @param {string} event
-   * @param {(payload: any) => void} listener
+   * @param {PackageManagerEventName} event
+   * @param {PackageManagerEventListener} listener
    * @returns {void}
    */
   off(event, listener) {
@@ -204,8 +234,9 @@ export class EventEmitter {
 
   /**
    * Emit event payload.
-   * @param {string} event
-   * @param {any} payload
+   * @template {PackageManagerEventName} T
+   * @param {T} event
+   * @param {EventPayloadMap[T]} payload
    * @returns {void}
    */
   emit(event, payload) {
