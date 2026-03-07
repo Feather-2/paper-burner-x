@@ -322,7 +322,7 @@ export function ensureEventBusBackpressure(eventBus, config) {
 /**
  * @private
  * @param {any} resp - LLM response object
- * @returns {{ promptTokens: number, completionTokens: number }} extracted token counts
+ * @returns {TokenUsageSummary} extracted token counts
  */
 export function extractTokenUsage(resp) {
   const usage = resp && typeof resp === "object" ? resp.usage : null;
@@ -564,3 +564,15 @@ export function ensureMcpClientRetry(mcpClient, retryStrategy) {
   if (isRetryStrategyLike(retryStrategy)) callTool.__pbRetryStrategy = retryStrategy;
   mcpClient.callTool = callTool;
 }
+/**
+ * @typedef {{
+ *   get?: (key: string) => unknown,
+ *   tryGet?: (key: string) => unknown
+ * }} ServiceContainerLike
+ *
+ * @typedef {{
+ *   promptTokens: number,
+ *   completionTokens: number,
+ *   usageMissing?: boolean
+ * }} TokenUsageSummary
+ */

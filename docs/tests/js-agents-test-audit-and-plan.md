@@ -561,6 +561,55 @@ core 内部未覆盖/陈旧热点：
 2. `js/agents/mcp/mcp-client.js`
 3. `js/agents/runtime/core/api/stage-api-helpers.js`
 
+## 17. 进度更新（2026-03-07 第七轮，TSC 热点第四批）
+
+继续推进下一批热点：
+
+- `js/agents/plugins/side-effects/side-effect-journal-helpers.js`
+- `js/agents/mcp/mcp-client.js`
+- `js/agents/runtime/core/api/stage-api-helpers.js`
+
+结果：
+
+- `npx tsc -p js/agents/tsconfig.json --pretty false`
+  - 诊断从 **306** 降到 **272**
+  - 单轮减少 **34** 条
+
+### 本轮修复内容
+
+1. `js/agents/plugins/side-effects/side-effect-journal-helpers.js`
+   - 明确 `buildJournalEntry()` 的返回结构
+   - 对 `checkpoint` / `meta` 做局部收窄后再展开，避免对 `unknown` 直接 spread
+
+2. `js/agents/mcp/mcp-client.js`
+   - 对 `err`、`err.error`、`err.mcpResult.error`、`err.response` 做显式 record 收窄
+   - 修复 circuit-breaker 错误分类逻辑中的 `unknown` 属性访问
+
+3. `js/agents/runtime/core/api/stage-api-helpers.js`
+   - 补充 `ServiceContainerLike`
+   - 补充 `TokenUsageSummary`
+   - 允许 `usageMissing` 作为返回字段，避免“契约比实现窄”的问题
+
+### 验证
+
+- `tests/unit/agents/mcp/mcp-client.test.js`
+- `tests/integration/agents/mcp/mcp-provider.test.js`
+
+均已通过。
+
+### 当前状态
+
+- 全量 agents 测试仍然保持 **20,058 / 0 fail**
+- TSC 诊断已降到 **272**
+
+### 下一步
+
+继续进入下一批热点：
+
+1. `js/agents/runtime/core/js-sandbox-worker.node.js`
+2. `js/agents/runtime/core/errors/error-taxonomy.js`
+3. `js/agents/plugins/debug/logger.js`
+
 ## 12. 代码质量回看（2026-03-07）
 
 按“不能用 `any`/`unknown` 逃避问题、不能靠降行为换绿灯”的标准，回看了本轮之前提交，确认存在两类需要纠正的修法：

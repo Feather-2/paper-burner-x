@@ -109,18 +109,23 @@ function isCallerSideMessage(message) {
  */
 function shouldTripProviderCircuit(err) {
   if (!err) return true;
+  const errorLike = err && typeof err === "object" ? /** @type {Record<string, unknown>} */ (err) : null;
+  const nestedError = isPlainObject(errorLike?.error) ? /** @type {Record<string, unknown>} */ (errorLike.error) : null;
+  const nestedMcpResult = isPlainObject(errorLike?.mcpResult) ? /** @type {Record<string, unknown>} */ (errorLike.mcpResult) : null;
+  const nestedMcpError = isPlainObject(nestedMcpResult?.error) ? /** @type {Record<string, unknown>} */ (nestedMcpResult.error) : null;
+  const responseLike = isPlainObject(errorLike?.response) ? /** @type {Record<string, unknown>} */ (errorLike.response) : null;
 
-  const name = normalizeErrorCode(err?.name);
+  const name = normalizeErrorCode(errorLike?.name);
   if (name === "aborterror") return false;
 
   // Prefer explicit structured error data when available.
   const structuredCodes = [
-    err?.code,
-    err?.type,
-    err?.error?.code,
-    err?.error?.type,
-    err?.mcpResult?.error?.code,
-    err?.mcpResult?.error?.type,
+    errorLike?.code,
+    errorLike?.type,
+    nestedError?.code,
+    nestedError?.type,
+    nestedMcpError?.code,
+    nestedMcpError?.type,
   ]
     .map(normalizeErrorCode)
     .filter(Boolean);
@@ -128,11 +133,11 @@ function shouldTripProviderCircuit(err) {
   if (structuredCodes.some((c) => CALLER_SIDE_ERROR_CODES.has(c))) return false;
 
   const statusCandidates = [
-    err?.status,
-    err?.statusCode,
-    err?.response?.status,
-    err?.error?.status,
-    err?.mcpResult?.error?.status,
+    errorLike?.status,
+    errorLike?.statusCode,
+    responseLike?.status,
+    nestedError?.status,
+    nestedMcpError?.status,
   ];
   const status = statusCandidates
     .map((s) => Number(s))

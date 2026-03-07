@@ -249,10 +249,22 @@ export function validateWalEntry(parsed) {
  * Build a normalized journal entry from raw input.
  * @param {unknown} entry
  * @param {number} seq
- * @returns {object}
+ * @returns {{
+ *   seq: number,
+ *   kind: string,
+ *   ts: string,
+ *   reversible: boolean,
+ *   checkpoint?: Record<string, unknown>,
+ *   path?: string,
+ *   op?: string,
+ *   eventId?: string,
+ *   meta?: Record<string, unknown>
+ * }}
  */
 export function buildJournalEntry(entry, seq) {
-  const e = isPlainObject(entry) ? entry : {};
+  const e = /** @type {Record<string, unknown>} */ (isPlainObject(entry) ? entry : {});
+  const checkpoint = isPlainObject(e.checkpoint) ? /** @type {Record<string, unknown>} */ (e.checkpoint) : null;
+  const meta = isPlainObject(e.meta) ? /** @type {Record<string, unknown>} */ (e.meta) : null;
   const kind = toNonEmptyString(e.kind) || "unknown";
   const ts = toIso(e.ts);
   const reversible = e.reversible === true;
@@ -262,11 +274,11 @@ export function buildJournalEntry(entry, seq) {
     kind,
     ts,
     reversible,
-    ...(isPlainObject(e.checkpoint) ? { checkpoint: { ...e.checkpoint } } : {}),
+    ...(checkpoint ? { checkpoint: { ...checkpoint } } : {}),
     ...(toNonEmptyString(e.path) ? { path: toNonEmptyString(e.path) } : {}),
     ...(toNonEmptyString(e.op) ? { op: toNonEmptyString(e.op) } : {}),
     ...(toNonEmptyString(e.eventId) ? { eventId: toNonEmptyString(e.eventId) } : {}),
-    ...(isPlainObject(e.meta) ? { meta: { ...e.meta } } : {}),
+    ...(meta ? { meta: { ...meta } } : {}),
   };
 }
 
