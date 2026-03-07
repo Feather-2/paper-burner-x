@@ -1011,7 +1011,7 @@ it("Runtime Tools: ToolExecutor worker isolation enforces hard timeout for sync 
   const { pathToFileURL } = require("node:url");
   const { ToolExecutor } = await import("../../../js/agents/runtime/tools/tool-executor.js");
 
-  const fixturePath = path.join(__dirname, "../fixtures/tool-executor/busy-loop.mjs");
+  const fixturePath = path.join(__dirname, "../../fixtures/tool-executor/busy-loop.mjs");
   const moduleUrl = pathToFileURL(fixturePath).href;
 
   const executor = new ToolExecutor({

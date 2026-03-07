@@ -72,10 +72,12 @@ describe("Stage", () => {
   it("should_return_expected_stage_constants_when_imported", () => {
     expect(Stage).toEqual({
       BEFORE_AGENT: "beforeAgent",
+      BEFORE_COMPRESSION: "beforeCompression",
       BEFORE_MODEL: "beforeModel",
       AFTER_MODEL: "afterModel",
       BEFORE_TOOL: "beforeTool",
       AFTER_TOOL: "afterTool",
+      AFTER_COMPRESSION: "afterCompression",
       AFTER_AGENT: "afterAgent",
     });
   });

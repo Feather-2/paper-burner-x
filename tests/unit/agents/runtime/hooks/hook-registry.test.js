@@ -28,6 +28,8 @@ describe("HookEvent", () => {
     expect(HookEvent).toEqual({
       PRE_AGENT: "PreAgent",
       POST_AGENT: "PostAgent",
+      PRE_COMPRESSION: "PreCompression",
+      POST_COMPRESSION: "PostCompression",
       PRE_LLM_CALL: "PreLLMCall",
       POST_LLM_CALL: "PostLLMCall",
       PRE_TOOL_USE: "PreToolUse",

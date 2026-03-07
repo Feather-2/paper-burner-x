@@ -78,7 +78,7 @@ describe("generateTraceId", () => {
       expect(id).toMatch(HEX_32);
       expect(mockedLogger.warn).toHaveBeenCalledWith(
         "WebCrypto unavailable, trace IDs use reduced-entropy fallback",
-        expect.objectContaining({ mode: "xorshift32-counter" }),
+        expect.objectContaining({ mode: "math-random" }),
       );
     } finally {
       if (originalDescriptor) {

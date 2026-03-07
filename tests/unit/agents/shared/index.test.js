@@ -68,6 +68,8 @@ const hoisted = vi.hoisted(() => {
     "getGlobalTokenCounter",
     "getIndexedDBQuotaStatus",
     "getLocalStorageQuotaStatus",
+    "getPlatformCapabilities",
+    "getSecureIdCapabilities",
     "getTokenCacheStats",
     "globToRegex",
     "hasLocalStorage",
@@ -82,6 +84,7 @@ const hoisted = vi.hoisted(() => {
     "isPlainObject",
     "isPotentiallyDangerous",
     "isRetryableError",
+    "isSecureIdSupported",
     "isTimeoutError",
     "isWasmSupported",
     "isWasmThreadsSupported",
@@ -106,6 +109,7 @@ const hoisted = vi.hoisted(() => {
     "safeExec",
     "safeInt",
     "safeJsonParse",
+    "safeJsonParseDetailed",
     "safeLocalStorageSet",
     "safeMatch",
     "safeNumber",
@@ -218,6 +222,7 @@ const hoisted = vi.hoisted(() => {
 vi.mock("../../../../js/agents/shared/platform.js", () => ({
   Platform: hoisted.Platform,
   isNodeLike: hoisted.isNodeLike,
+  getPlatformCapabilities: hoisted.getPlatformCapabilities,
 }));
 vi.mock("../../../../js/agents/shared/base/disposable-base.js", () => ({
   DisposableBase: hoisted.DisposableBase,
@@ -280,6 +285,7 @@ vi.mock("../../../../js/agents/shared/utils/deque.js", () => ({
 }));
 vi.mock("../../../../js/agents/shared/utils/safe-json.js", () => ({
   safeJsonParse: hoisted.safeJsonParse,
+  safeJsonParseDetailed: hoisted.safeJsonParseDetailed,
   protoSafeReviver: hoisted.protoSafeReviver,
 }));
 vi.mock("../../../../js/agents/shared/utils/json-candidate.js", () => ({
@@ -295,6 +301,8 @@ vi.mock("../../../../js/agents/shared/utils/secure-id.js", () => ({
   cryptoRandomUuid: hoisted.cryptoRandomUuid,
   makeSecureId: hoisted.makeSecureId,
   makeSecureTimestampedId: hoisted.makeSecureTimestampedId,
+  getSecureIdCapabilities: hoisted.getSecureIdCapabilities,
+  isSecureIdSupported: hoisted.isSecureIdSupported,
 }));
 vi.mock("../../../../js/agents/shared/utils/cancellation.js", () => ({
   checkCancelled: hoisted.checkCancelled,

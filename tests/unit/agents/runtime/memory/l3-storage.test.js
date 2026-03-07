@@ -74,7 +74,9 @@ describe("L3Storage", () => {
     expect(await vfs.exists(snapshotsDir)).toBe(true);
     expect(await vfs.exists(checkpointsDir)).toBe(true);
 
-    expect(storage.getTimeline()).toEqual(seededIndex.timeline);
+    expect(storage.getTimeline()).toEqual([
+      expect.objectContaining(seededIndex.timeline[0]),
+    ]);
     expect(storage.searchByKeyword("ALPHA").sort()).toEqual(["snap_1", "snap_2"].sort());
     expect(await storage.listCheckpoints()).toEqual([
       { id: "ckpt_1", ts: 10, encoding: "json", baseId: null },

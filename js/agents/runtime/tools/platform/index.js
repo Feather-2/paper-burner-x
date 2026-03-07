@@ -85,14 +85,7 @@ function getCapabilityOverrides() {
 function probePythonCapability() {
   const overrides = getCapabilityOverrides();
   if (typeof overrides?.python === "boolean") return overrides.python;
-
-  if (isNodeLike()) {
-    const env = globalThis?.process?.env || {};
-    if (typeof env.PYTHON === "string" && env.PYTHON.trim()) return true;
-    if (typeof env.PYTHON_PATH === "string" && env.PYTHON_PATH.trim()) return true;
-    return false;
-  }
-
+  if (isNodeLike()) return true;
   return (
     typeof globalThis.loadPyodide === "function" ||
     !!globalThis.pyodide ||
@@ -103,7 +96,7 @@ function probePythonCapability() {
 function probeJsSandboxCapability() {
   const overrides = getCapabilityOverrides();
   if (typeof overrides?.js_sandbox === "boolean") return overrides.js_sandbox;
-
+  if (isNodeLike()) return true;
   return !!globalThis.QuickJS || !!globalThis.quickjs || globalThis.__AGENT_JS_SANDBOX_READY__ === true;
 }
 

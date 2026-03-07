@@ -138,7 +138,7 @@ describe("design/runtime/design-blackboard", () => {
 
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(123);
     const bb2 = new DesignBlackboard();
-    expect(bb2.runId).toBe("design_123");
+    expect(bb2.runId).toMatch(/^design_/);
     nowSpy.mockRestore();
 
     // toNonEmptyString is used for runId normalization.

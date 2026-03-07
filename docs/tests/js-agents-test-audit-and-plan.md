@@ -343,6 +343,57 @@ core 内部未覆盖/陈旧热点：
 5. `tests/integration/agents/skills.test.js`
 6. `tests/unit/agents/shared/index.test.js` / `tests/integration/agents/stages/codesearch/phases-index.vitest.test.js`
 
+## 11. 进度更新（2026-03-07 第二轮）
+
+本轮继续只在 `js/agents/**`、对应 `tests/**`、`docs/tests/**` 范围内收敛修复，结果如下：
+
+- 全量 agents 自动化测试从 **20,037 / 29 fail** 进一步降到 **20,045 / 20 fail**
+- 新清掉的失败主要集中在：
+  - `runtime/tools/platform`
+  - `plugins/telemetry/trace-context`
+  - `runtime/hooks/*`
+  - `shared/index`
+  - `runtime/memory/l3-storage`
+  - `runtime/core/middleware`
+  - `stages/design/runtime/design-blackboard`
+  - `integration/runtime` 中 worker fixture 路径问题
+
+本轮关键改动：
+
+- 实现修复：
+  - `js/agents/runtime/tools/platform/index.js`
+  - `js/agents/plugins/telemetry/trace-context.js`
+- 测试与契约更新：
+  - `tests/integration/agents/runtime.test.js`
+  - `tests/integration/agents/runtime/hooks/hook-event.test.js`
+  - `tests/unit/agents/runtime/hooks/hook-registry.test.js`
+  - `tests/unit/agents/shared/index.test.js`
+  - `tests/unit/agents/plugins/telemetry/trace-context.test.js`
+  - `tests/unit/agents/runtime/memory/l3-storage.test.js`
+  - `tests/unit/agents/runtime/core/middleware/middleware-chain.test.js`
+  - `tests/unit/agents/stages/design/runtime/design-blackboard.test.js`
+
+当前剩余失败清单已经收敛到 10 组：
+
+1. `tests/integration/agents/skills.test.js`
+2. `tests/unit/agents/ingest/index.test.js`
+3. `tests/unit/agents/llm/ppt-model-bridge.test.js`
+4. `tests/unit/agents/mcp/local-mcp-provider.test.js`
+5. `tests/integration/agents/stages/codesearch/phases-index.vitest.test.js`
+6. `tests/integration/agents/stages/deepsearch/helpers.test.js`
+7. `tests/integration/agents/stages/deepsearch/tool-handlers.test.js`
+8. `tests/unit/agents/plugins/checkpoints/index.test.js`
+9. `tests/unit/agents/runtime/context/subagent-budget.test.js`
+10. `tests/unit/agents/runtime/core/agent-loop-message-handling.test.js`
+
+下一轮优先级建议：
+
+1. 先清 `plugins/checkpoints`（5 fail）和 `runtime/context/subagent-budget`（4 fail）  
+2. 再清 `agent-loop-message-handling`（2 fail）  
+3. 最后处理 `skills / ingest / llm / mcp / deepsearch` 的单点失败  
+
+这样可以继续用最小 diff 换最多绿灯。
+
 ---
 
 > 备注：本文件记录的是 **修复前基线**。后续每完成一个阶段，应更新本文件中的失败数、覆盖空洞和目标比例偏差。
