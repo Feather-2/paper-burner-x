@@ -442,7 +442,8 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
           : { enabled: false },
         indexUrl: this.indexUrl
       }, context.vfs, {
-        timeoutMs: context?.timeoutMs ?? context?.timeout,
+        timeoutMs: /** @type {ExecutionContext & { timeoutMs?: number, timeout?: number }} */ (context).timeoutMs
+          ?? /** @type {ExecutionContext & { timeoutMs?: number, timeout?: number }} */ (context).timeout,
         signal: context?.signal,
       });
 

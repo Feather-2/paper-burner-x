@@ -28,8 +28,8 @@ export function format(fmt, ...args) {
     const arg = args[i++];
     switch (match) {
       case '%s': return String(arg);
-      case '%d': case '%i': return parseInt(arg, 10);
-      case '%f': return parseFloat(arg);
+      case '%d': case '%i': return String(parseInt(String(arg), 10));
+      case '%f': return String(parseFloat(String(arg)));
       case '%j': return JSON.stringify(arg);
       case '%o': case '%O': return inspect(arg);
       default: return match;
@@ -69,7 +69,7 @@ export function callbackify(fn) {
  */
 export function inherits(ctor, superCtor) {
   Object.setPrototypeOf(ctor.prototype, superCtor.prototype);
-  ctor.super_ = superCtor;
+  /** @type {Function & { super_?: Function }} */ (ctor).super_ = superCtor;
 }
 
 /**

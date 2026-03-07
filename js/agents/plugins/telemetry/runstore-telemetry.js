@@ -68,12 +68,23 @@ function upsertTodo(todosById, evt) {
 }
 
 /**
+ * @typedef {{ maxTimelineEntries?: number, allowUnlimitedTimeline?: boolean }} RunstoreTelemetryOptions
+ * @typedef {{
+ *   timeline: Array<object>,
+ *   todos: Array<object>,
+ *   diagnostics: { appendSuccessCount: number, appendFailureCount: number, lastError: string | null, recentAppendErrors: Array<object>, maxTimelineEntries: number },
+ *   flush: () => Promise<void>,
+ *   unsubscribe: Function,
+ *   snapshot: () => { timeline: Array<object>, todos: Array<object>, diagnostics: { appendSuccessCount: number, appendFailureCount: number, lastError: string | null, recentAppendErrors: Array<object>, maxTimelineEntries: number } }
+ * }} RunstoreTelemetrySubscription
+ */
+
+/**
  * Subscribe EventBus telemetry into RunStore, while aggregating timeline/todos for UI.
  * @param {object} eventBus EventBus
  * @param {object} runStore RunStore
- * @param {object} [options]
- * @param {number} [options.maxTimelineEntries=2000] Sliding window size for in-memory timeline (<=0 disables limit).
- * @returns {{timeline:Array<object>,todos:Array<object>,flush:Function,unsubscribe:Function,snapshot:Function}}
+ * @param {RunstoreTelemetryOptions} [options]
+ * @returns {RunstoreTelemetrySubscription}
  */
 export function subscribeTelemetry(eventBus, runStore, options = {}) {
   const bus = ensureEventBus(eventBus);

@@ -120,9 +120,9 @@ function detectUnsupportedProtocol(range) {
 function throwUnsupportedRangeProtocol(name, range) {
   const protocol = detectUnsupportedProtocol(range);
   if (!protocol) return;
-  const error = new Error(
+  const error = /** @type {Error & { code?: string, protocol?: string }} */ (new Error(
     `Unsupported version range protocol "${protocol}:" for "${name}" with range "${range}"`,
-  );
+  ));
   error.code = 'ERR_UNSUPPORTED_VERSION_RANGE_PROTOCOL';
   error.protocol = protocol;
   throw error;

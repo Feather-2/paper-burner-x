@@ -6,6 +6,7 @@
 /**
  * @typedef {(err: Error | null, address?: string, family?: number) => void} LookupCallback
  * @typedef {(err: Error | null, addresses?: Array<{address: string, family: number}>) => void} LookupAllCallback
+ * @typedef {Error & { code?: string, hostname?: string }} DnsShimError
  */
 
 function asyncCall(fn) {
@@ -13,7 +14,7 @@ function asyncCall(fn) {
 }
 
 function createNotFoundError(hostname) {
-  const err = new Error(`getaddrinfo ENOTFOUND ${hostname}`);
+  const err = /** @type {DnsShimError} */ (new Error(`getaddrinfo ENOTFOUND ${hostname}`));
   err.code = 'ENOTFOUND';
   err.hostname = hostname;
   return err;

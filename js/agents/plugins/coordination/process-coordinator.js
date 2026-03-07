@@ -454,9 +454,10 @@ export class ProcessCoordinator extends DisposableBase {
     ) || { sent: 0, failed: 0 };
     if (result.failed > 0) {
       this._safeCall(this._onForwardError, { message: parsed, failed: result.failed, sent: result.sent }, "onForwardError");
-      if (_worker && typeof _worker.send === "function") {
+      const sendCapableWorker = /** @type {{ send?: (message: unknown) => void } | null | undefined } */ (_worker);
+      if (sendCapableWorker && typeof sendCapableWorker.send === "function") {
         try {
-          _worker.send({
+          sendCapableWorker.send({
             type: "coordination-forward-error",
             event: parsed.type,
             sessionId: parsed.sessionId,

@@ -145,8 +145,11 @@ function normalizeArchiveKey(key) {
  * @returns {OverflowRetryState | null}
  */
 function normalizeOverflowRetryState(raw) {
-  const fromNodeStates = raw?.nodeStates?.overflowRecovery;
-  const fromPayload = raw?.overflowRecovery;
+  const record = raw && typeof raw === "object"
+    ? /** @type {{ nodeStates?: { overflowRecovery?: unknown }, overflowRecovery?: unknown }} */ (raw)
+    : null;
+  const fromNodeStates = record?.nodeStates?.overflowRecovery;
+  const fromPayload = record?.overflowRecovery;
   const candidate =
     fromNodeStates && typeof fromNodeStates === "object"
       ? fromNodeStates
@@ -157,22 +160,23 @@ function normalizeOverflowRetryState(raw) {
           : null;
 
   if (!candidate || typeof candidate !== "object") return null;
+  const candidateRecord = /** @type {{ attempt?: number, inProgress?: boolean, currentMaxTokens?: number, updatedAt?: number }} */ (candidate);
 
-  const attempt = Number(candidate.attempt);
+  const attempt = Number(candidateRecord.attempt);
   if (!Number.isFinite(attempt) || attempt < 0) return null;
 
   const out = {
     version: OVERFLOW_RETRY_STATE_VERSION,
-    inProgress: candidate.inProgress === undefined ? attempt > 0 : Boolean(candidate.inProgress),
+    inProgress: candidateRecord.inProgress === undefined ? attempt > 0 : Boolean(candidateRecord.inProgress),
     attempt: Math.max(0, Math.floor(attempt)),
   };
 
-  const currentMaxTokens = Number(candidate.currentMaxTokens);
+  const currentMaxTokens = Number(candidateRecord.currentMaxTokens);
   if (Number.isFinite(currentMaxTokens) && currentMaxTokens > 0) {
     out.currentMaxTokens = Math.max(1, Math.floor(currentMaxTokens));
   }
 
-  const updatedAt = Number(candidate.updatedAt);
+  const updatedAt = Number(candidateRecord.updatedAt);
   if (Number.isFinite(updatedAt) && updatedAt > 0) {
     out.updatedAt = Math.floor(updatedAt);
   }

@@ -1017,3 +1017,73 @@ core 内部未覆盖/陈旧热点：
 3. `js/agents/core/sandbox/{create-sandbox,skill-executor-core,skill-validation,system/seatbelt}.js`
 4. `js/agents/runtime/core/{agent-coordination,python-adapter,scheduler,vfs-proxy-client}.js`
 5. `js/agents/plugins/telemetry/runstore-telemetry.js`
+
+## 14. 第 13 轮，继续收口剩余热点（2026-03-08）
+
+这一轮继续针对剩余 1~2 条诊断的文件做“边界收窄 + 契约补全”，没有通过简化逻辑来换绿灯。
+
+### 本轮处理文件
+
+- `js/agents/core/crdt/document.js`
+- `js/agents/core/node-compat/npm/resolver.js`
+- `js/agents/core/node-compat/polyfills/text-decoder.js`
+- `js/agents/core/node-compat/shims/{dns,module,util,ws,zlib,events}.js`
+- `js/agents/core/sandbox/skill-sandbox.js`
+- `js/agents/core/sandbox/skill-validation.js`
+- `js/agents/llm/overflow-recovery.js`
+- `js/agents/plugins/coordination/process-coordinator.js`
+- `js/agents/plugins/telemetry/runstore-telemetry.js`
+- `js/agents/runtime/core/python-adapter.js`
+- `js/agents/runtime/core/vfs-proxy-client.js`
+- `js/agents/runtime/tools/platform/browser.js`
+- `js/agents/sdk/http/{browser-server,node-server}.js`
+- `js/agents/shared/utils/token-cache.js`
+- `js/agents/stages/codesearch/phases/planning-phase.js`
+- `js/agents/stages/deepsearch/subagents.js`
+- `js/agents/stages/deepsearch/tools/task/handler.js`
+- `js/agents/vfs/vfs-sync-protocol.js`
+
+### 这轮做了什么
+
+- 补齐多处错误对象扩展字段：`code/protocol/hostname/path`
+- 修正多处 browser/node fallback 的 `Buffer` 使用方式，避免直接依赖未收窄的全局构造器
+- 给 `overflow-recovery`、`process-coordinator`、`planning-phase` 等位置加局部精确收窄，避免在 `object` / `unknown` 上直接取字段
+- 给 `runstore-telemetry`、`task/handler` 补充缺失的返回/记录契约字段
+- 修正 `browser-server` / `node-server` 对 `createRequestHandler().dispose()` 的静态契约
+- 把 `deepsearch/subagents` 的 backpressure 调用改成现有契约接受的参数，不改行为目标
+
+### 当前结果
+
+- `npx tsc -p js/agents/tsconfig.json --pretty false`
+  - 诊断数从 **85** 降到 **40**
+  - 单轮再减少 **45** 条
+
+### 验证
+
+已通过的窄回归：
+
+- `tests/unit/agents/sdk/http/browser-server.test.js`
+- `tests/unit/agents/sdk/http/node-server.test.js`
+- `tests/unit/agents/shared/utils/token-cache.test.js`
+- `tests/unit/agents/stages/codesearch/phases/planning-phase.test.js`
+- `tests/integration/agents/stages/codesearch.test.js`
+- `tests/integration/agents/skills-manager.test.js`
+- `tests/unit/agents/core/node-compat/shims/util.test.js`
+- `tests/unit/agents/core/node-compat/shims/ws.test.js`
+- `tests/unit/agents/core/node-compat/shims/zlib.test.js`
+- `tests/unit/agents/core/node-compat/shims/dns.test.js`
+- `tests/unit/agents/core/node-compat/shims/module.test.js`
+- `tests/unit/agents/core/node-compat/shims/events.test.js`
+- `tests/unit/agents/core/crdt/document.test.js`
+- `tests/unit/agents/vfs/vfs-sync-protocol.test.js`
+
+### 下一步
+
+剩余热点主要集中在：
+
+1. `js/agents/core/node-compat/shims/buffer.js`
+2. `js/agents/core/sandbox/create-sandbox.js`
+3. `js/agents/core/sandbox/system/seatbelt.js`
+4. `js/agents/core/webruntime/sw-handler.js`
+5. `js/agents/runtime/core/{agent-coordination,scheduler}.js`
+6. 多个只剩 1 条诊断的边角文件

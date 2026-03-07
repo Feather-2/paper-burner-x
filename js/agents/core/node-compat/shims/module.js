@@ -16,6 +16,7 @@ import { Buffer } from './buffer.js';
 
 /**
  * @typedef {(id: string) => unknown} RequireFunction
+ * @typedef {Error & { code?: string, path?: string }} ModuleShimError
  */
 
 /**
@@ -23,7 +24,7 @@ import { Buffer } from './buffer.js';
  */
 
 function makeModuleNotFound(id, filename) {
-  const err = new Error(`Cannot find module '${id}' from '${filename}'`);
+  const err = /** @type {ModuleShimError} */ (new Error(`Cannot find module '${id}' from '${filename}'`));
   err.code = 'MODULE_NOT_FOUND';
   err.path = filename;
   return err;

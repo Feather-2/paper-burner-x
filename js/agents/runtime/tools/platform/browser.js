@@ -10,6 +10,7 @@ import { globToRegex, createSafeRegex } from '../../../shared/index.js';
 /**
  * @typedef {import('./index.js').PlatformToolsOptions} PlatformToolsOptions
  * @typedef {import('./index.js').PlatformTools} PlatformTools
+ * @typedef {{ stat?: (path: string) => Promise<{ isDirectory?: (() => boolean) | boolean, type?: string } | null> }} VfsStatCapable
  */
 
 /**
@@ -110,9 +111,10 @@ export function createBrowserTools(options = {}) {
     }
 
     async function isDirectory(targetPath) {
-      if (vfs && typeof vfs.stat === "function") {
+      const statCapableVfs = /** @type {typeof vfs & VfsStatCapable} */ (vfs);
+      if (statCapableVfs && typeof statCapableVfs.stat === "function") {
         try {
-          const stat = await vfs.stat(targetPath);
+          const stat = await statCapableVfs.stat(targetPath);
           if (typeof stat?.isDirectory === "function") return stat.isDirectory();
           if (typeof stat?.isDirectory === "boolean") return stat.isDirectory;
           if (typeof stat?.type === "string") return stat.type.toLowerCase() === "directory";

@@ -19,9 +19,10 @@ const cache = new Map();
  * @returns {number}
  */
 function getDefaultMaxCacheSize() {
-  if (typeof navigator !== "undefined" && Number.isFinite(navigator.deviceMemory)) {
+  const navigatorWithMemory = /** @type {Navigator & { deviceMemory?: number }} */ (navigator);
+  if (typeof navigator !== "undefined" && Number.isFinite(navigatorWithMemory.deviceMemory)) {
     // Scale with device memory: 2GB -> 5000, 4GB -> 10000, 8GB+ -> 20000
-    return Math.max(2000, Math.min(20000, Math.floor(navigator.deviceMemory * 2500)));
+    return Math.max(2000, Math.min(20000, Math.floor(navigatorWithMemory.deviceMemory * 2500)));
   }
   return 10000; // Fallback
 }

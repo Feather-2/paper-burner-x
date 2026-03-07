@@ -5,8 +5,10 @@
 
 import { EventEmitter } from './events.js';
 
+/** @typedef {Error & { code?: string }} WsShimError */
+
 function createUnsupportedServerError(api) {
-  const err = new Error(`[ws shim] ${api} is not supported in browser runtime`);
+  const err = /** @type {WsShimError} */ (new Error(`[ws shim] ${api} is not supported in browser runtime`));
   err.code = 'ERR_WS_SERVER_UNSUPPORTED';
   return err;
 }
@@ -57,7 +59,8 @@ export class WebSocket extends EventEmitter {
     };
 
     this._ws.onerror = (event) => {
-      this.emit('error', event.error || new Error('WebSocket error'));
+      const eventWithError = /** @type {Event & { error?: Error }} */ (event);
+      this.emit('error', eventWithError.error || new Error('WebSocket error'));
     };
 
     this._ws.onclose = (event) => {

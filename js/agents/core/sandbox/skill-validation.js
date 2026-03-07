@@ -24,7 +24,7 @@ export function defaultTrustChecker(skill) {
 /**
  * fallback eval 仅允许可信代码或显式 allowlist
  * @param {Object} skill
- * @param {Object} [context]
+ * @param {Object | undefined} context
  * @param {Function} trustChecker
  * @param {Set<string>} fallbackAllowlist
  * @param {Object} logger
@@ -53,7 +53,7 @@ export function isFallbackAllowed(skill, context, trustChecker, fallbackAllowlis
 /**
  * 确定 Skill 的能力级别
  * @param {Object} skill
- * @param {Object} [context]
+ * @param {Object | undefined} context
  * @param {Function} trustChecker
  * @param {Object} logger
  * @returns {string[]}

@@ -61,6 +61,7 @@ export class VfsSyncProtocol extends EventEmitter {
    * @returns {Promise<VfsSnapshot>}
    */
   async toSnapshot({ prefix = "" } = {}) {
+    /** @type {VfsFileSnapshot[]} */
     const files = [];
     const pfx = normalizeVfsPath(prefix);
 
@@ -185,9 +186,10 @@ export class VfsSyncProtocol extends EventEmitter {
    * @returns {string}
    */
   _bytesToBase64(bytes) {
-    if (typeof Buffer !== "undefined") {
+    const bufferCtor = /** @type {{ from?: (input: Uint8Array) => { toString: (encoding: string) => string } }} */ (globalThis.Buffer);
+    if (bufferCtor && typeof bufferCtor.from === "function") {
       // Node.js
-      return Buffer.from(bytes).toString("base64");
+      return bufferCtor.from(bytes).toString("base64");
     }
     // Browser
     let binary = "";

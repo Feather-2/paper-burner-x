@@ -70,8 +70,9 @@ function bytesToBase64(bytes) {
     return '';
   }
 
-  if (typeof globalThis.Buffer !== 'undefined') {
-    return globalThis.Buffer.from(bytes).toString('base64');
+  const bufferCtor = /** @type {{ from?: (input: Uint8Array) => { toString: (encoding: string) => string } }} */ (globalThis.Buffer);
+  if (bufferCtor && typeof bufferCtor.from === 'function') {
+    return bufferCtor.from(bytes).toString('base64');
   }
 
   if (typeof globalThis.btoa === 'function') {

@@ -31,6 +31,7 @@ const NODE_WORKER_RESOURCE_LIMITS_MIN_VERSION = Object.freeze({
  * @property {number} durationMs
  * @property {boolean=} blocked
  * @property {boolean=} timedOut
+ * @property {string=} configError
  * @property {FallbackExecutionMode=} mode
  * @property {string[]=} blockedGlobals
  */

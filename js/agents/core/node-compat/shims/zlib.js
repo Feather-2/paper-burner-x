@@ -157,7 +157,7 @@ async function compressWithStream(format, data) {
   }
   const cs = new CompressionStream(format);
   const writer = cs.writable.getWriter();
-  writer.write(data);
+  writer.write(/** @type {BufferSource} */ (data));
   writer.close();
   const chunks = [];
   const reader = cs.readable.getReader();
@@ -180,7 +180,7 @@ async function decompressWithStream(format, data) {
   }
   const ds = new DecompressionStream(format);
   const writer = ds.writable.getWriter();
-  writer.write(data);
+  writer.write(/** @type {BufferSource} */ (data));
   writer.close();
   const chunks = [];
   const reader = ds.readable.getReader();

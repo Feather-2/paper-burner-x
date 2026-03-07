@@ -74,7 +74,7 @@ export class EventEmitter {
   removeListener(event, listener) {
     const list = this._events.get(event);
     if (!list) return this;
-    const idx = list.findIndex(fn => fn === listener || fn._original === listener);
+    const idx = list.findIndex(fn => fn === listener || /** @type {Function & { _original?: Function }} */ (fn)._original === listener);
     if (idx !== -1) list.splice(idx, 1);
     if (list.length === 0) this._events.delete(event);
     return this;

@@ -282,8 +282,9 @@ export async function runPlanningPhase({
   }
 
   const createdTodos = [];
-  const resolvedTodoIdFactory = typeof state?.createTodoId === "function"
-    ? state.createTodoId.bind(state)
+  const stateWithTodoFactory = /** @type {CodeSearchStateLike & { createTodoId?: (prefix?: string) => string }} */ (state || {});
+  const resolvedTodoIdFactory = typeof stateWithTodoFactory.createTodoId === "function"
+    ? stateWithTodoFactory.createTodoId.bind(stateWithTodoFactory)
     : (typeof todoIdFactory === "function" ? todoIdFactory : null);
   const seenTodoIds = new Set(
     Array.isArray(state?.todos)

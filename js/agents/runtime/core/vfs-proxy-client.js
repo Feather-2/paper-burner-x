@@ -518,7 +518,7 @@ export class VfsProxyClient {
    */
   _requestAsync(op, path, args) {
     if (this._pending.size >= this.maxPendingAsync) {
-      const err = new Error(`VfsProxyClient: async queue full (${this.maxPendingAsync})`);
+      const err = /** @type {Error & { code?: string }} */ (new Error(`VfsProxyClient: async queue full (${this.maxPendingAsync})`));
       err.code = "ERR_VFS_PROXY_BACKPRESSURE";
       return Promise.reject(err);
     }
@@ -529,7 +529,7 @@ export class VfsProxyClient {
       const timer = setTimeout(() => {
         if (!this._pending.has(id)) return;
         this._pending.delete(id);
-        const err = new Error(`VfsProxyClient: ${op} timed out for ${path}`);
+        const err = /** @type {Error & { code?: string }} */ (new Error(`VfsProxyClient: ${op} timed out for ${path}`));
         err.code = "ERR_VFS_PROXY_TIMEOUT";
         reject(err);
       }, this.timeoutMs);

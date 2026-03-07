@@ -35,8 +35,9 @@ function decodeUtf8Bytes(bytes) {
   if (typeof TextDecoder === 'function') {
     return new TextDecoder().decode(bytes);
   }
-  if (typeof Buffer === 'function') {
-    return Buffer.from(bytes).toString('utf8');
+  const bufferCtor = /** @type {{ from?: (input: Uint8Array) => { toString: (encoding: string) => string } }} */ (globalThis.Buffer);
+  if (bufferCtor && typeof bufferCtor.from === 'function') {
+    return bufferCtor.from(bytes).toString('utf8');
   }
   let out = '';
   for (let i = 0; i < bytes.length; i += 1) out += String.fromCharCode(bytes[i]);
@@ -81,7 +82,9 @@ export function normalizeVirtualRequestBody(body) {
  */
 export async function createBrowserServer(agentFactory, options = {}) {
   const { createServerBridge } = await import('../../core/webruntime/server-bridge.js');
-  const handler = createRequestHandler(agentFactory, options.handlerOptions);
+  const handler = /** @type {ReturnType<typeof createRequestHandler> & { dispose: () => void }} */ (
+    createRequestHandler(agentFactory, options.handlerOptions)
+  );
   const scope = options.scope || '/__agent__/';
   const port = options.port || 3000;
 

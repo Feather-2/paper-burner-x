@@ -47,6 +47,7 @@ const MAX_BODY_BYTES = 1 << 20; // 1 MB
  */
 function readBody(req, maxBytes) {
   return new Promise((resolve, reject) => {
+    /** @type {Uint8Array[]} */
     const chunks = [];
     let bytes = 0;
 
@@ -60,8 +61,14 @@ function readBody(req, maxBytes) {
       chunks.push(chunk);
     });
 
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
+    req.on('end', () => {
+      const bufferCtor = /** @type {{ concat?: (chunks: Uint8Array[]) => { toString: (encoding: string) => string } }} */ (globalThis.Buffer);
+      const body = bufferCtor && typeof bufferCtor.concat === 'function'
+        ? bufferCtor.concat(chunks).toString('utf8')
+        : new TextDecoder().decode(Uint8Array.from(chunks.flatMap((chunk) => Array.from(chunk))));
+      resolve(body);
+    });
+    req.on('error', (err) => reject(err));
   });
 }
 
@@ -78,7 +85,9 @@ function readBody(req, maxBytes) {
  */
 export async function createNodeServer(agentFactory, options = {}) {
   const http = await import('http');
-  const handler = createRequestHandler(agentFactory, options.handlerOptions);
+  const handler = /** @type {ReturnType<typeof createRequestHandler> & { dispose: () => void }} */ (
+    createRequestHandler(agentFactory, options.handlerOptions)
+  );
   const maxBytes = options.handlerOptions?.maxBodyBytes ?? MAX_BODY_BYTES;
 
   const server = http.createServer(async (req, res) => {

@@ -363,7 +363,9 @@ export class CRDTDocument {
    * @returns {CRDTDocumentOp[]}
    */
   getOps(sinceVersion = 0) {
-    return this._opLog.filter(op => op.version > sinceVersion);
+    const baseline = typeof sinceVersion === 'number' ? sinceVersion : Number(sinceVersion);
+    const resolvedBaseline = Number.isFinite(baseline) ? baseline : 0;
+    return this._opLog.filter(op => op.version > resolvedBaseline);
   }
 
   /**
