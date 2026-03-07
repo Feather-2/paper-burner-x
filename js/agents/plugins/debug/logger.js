@@ -7,6 +7,7 @@
 import { createPlugin } from '../../core/plugin.js';
 
 /** @typedef {import('../../core/plugin.js').PluginContext} PluginContext */
+/** @typedef {PluginContext & { _loggerUnsubs?: { unsubEvents?: (() => void) | null, unsubState?: (() => void) | null } | null }} LoggerPluginContext */
 
 /**
  * @typedef {Object} LoggerConfig
@@ -164,9 +165,9 @@ function createLogFn(options) {
 }
 
 /**
- * @param {PluginContext} ctx
+ * @param {LoggerPluginContext} ctx
  * @param {(level: string, event: string, data: unknown) => void} log
- * @returns {{ unsubEvents: Function|undefined, unsubState: Function|undefined }}
+ * @returns {{ unsubEvents: (() => void)|undefined, unsubState: (() => void)|undefined }}
  */
 function registerEventListeners(ctx, log) {
   const unsubEvents = ctx.on('*', (evt) => {
@@ -197,7 +198,7 @@ export default createPlugin({
   },
 
   /**
-   * @param {PluginContext} ctx
+   * @param {LoggerPluginContext} ctx
    * @returns {void}
    */
   install(ctx) {
@@ -242,7 +243,7 @@ export default createPlugin({
   },
 
   /**
-   * @param {PluginContext} ctx
+   * @param {LoggerPluginContext} ctx
    * @returns {void}
    */
   uninstall(ctx) {

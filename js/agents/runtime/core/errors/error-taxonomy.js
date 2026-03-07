@@ -28,6 +28,15 @@ const TIMEOUT_NAMES = new Set(['AbortError', 'TimeoutError']);
 const RESOURCE_PATTERNS = [/out of memory/i, /quota exceeded/i, /oom/i, /heap/i, /ENOMEM/];
 
 /**
+ * @typedef {Error & {
+ *   code?: string,
+ *   status?: number,
+ *   retryable?: boolean,
+ *   category?: string
+ * }} ClassifiedError
+ */
+
+/**
  * 分类错误
  * @param {Error | { name?: string, message?: string, code?: string, status?: number, retryable?: boolean, category?: string }} error
  * @returns {{ taxonomy: string, retryable: boolean }}
@@ -36,16 +45,17 @@ export function classifyError(error) {
   if (!error || typeof error !== 'object') {
     return { taxonomy: ErrorTaxonomy.UNKNOWN, retryable: false };
   }
+  const err = /** @type {ClassifiedError} */ (error);
 
   // 如果已有显式标记，尊重它
-  if (typeof error.retryable === 'boolean' && typeof error.category === 'string') {
-    return { taxonomy: error.category, retryable: error.retryable };
+  if (typeof err.retryable === 'boolean' && typeof err.category === 'string') {
+    return { taxonomy: err.category, retryable: err.retryable };
   }
 
-  const name = typeof error.name === 'string' ? error.name : '';
-  const msg = typeof error.message === 'string' ? error.message : '';
-  const code = typeof error.code === 'string' ? error.code : '';
-  const status = typeof error.status === 'number' ? error.status : 0;
+  const name = typeof err.name === 'string' ? err.name : '';
+  const msg = typeof err.message === 'string' ? err.message : '';
+  const code = typeof err.code === 'string' ? err.code : '';
+  const status = typeof err.status === 'number' ? err.status : 0;
 
   // Timeout
   if (TIMEOUT_NAMES.has(name) || /timeout/i.test(msg) || code === 'ETIMEDOUT') {

@@ -103,7 +103,8 @@ function safeByteFloor(value) {
 function estimateArrayLikeLength(value) {
   if (!value || typeof value !== 'object') return 0;
   if (!Object.prototype.hasOwnProperty.call(value, 'length') && !('length' in value)) return 0;
-  return normalizeNonNegativeInteger(value.length);
+  const withLength = /** @type {{ length?: unknown }} */ (value);
+  return normalizeNonNegativeInteger(withLength.length);
 }
 
 /**
@@ -175,7 +176,7 @@ function createAllocationGuard(limits, audit) {
      * @param {unknown} size
      */
     assertArrayBuffer(size) {
-      assertAllocation(size, 'ArrayBuffer');
+      assertAllocation(normalizeNonNegativeInteger(size), 'ArrayBuffer');
     },
 
     /**
@@ -213,8 +214,9 @@ function wrapArrayBufferConstructor(ctor, guard) {
  * @returns {Function}
  */
 function wrapTypedArrayConstructor(ctor, guard) {
-  const bytesPerElement = normalizeNonNegativeInteger(ctor?.BYTES_PER_ELEMENT) || 1;
-  const ctorName = String(ctor?.name || 'TypedArray');
+  const typedCtor = /** @type {{ BYTES_PER_ELEMENT?: unknown, name?: unknown }} */ (ctor);
+  const bytesPerElement = normalizeNonNegativeInteger(typedCtor.BYTES_PER_ELEMENT) || 1;
+  const ctorName = String(typedCtor.name || 'TypedArray');
 
   /** @type {Function} */
   let proxy;
@@ -250,13 +252,14 @@ const WORKER_SANDBOX_LIMITS = (() => {
  */
 function resolveExecutionLimits(requestLimits) {
   if (!requestLimits || typeof requestLimits !== 'object') return WORKER_SANDBOX_LIMITS;
+  const limits = /** @type {{ maxArrayBufferBytes?: unknown, maxTotalArrayBufferBytes?: unknown }} */ (requestLimits);
 
   const maxArrayBufferBytes = normalizeByteLimit(
-    requestLimits.maxArrayBufferBytes,
+    limits.maxArrayBufferBytes,
     WORKER_SANDBOX_LIMITS.maxArrayBufferBytes
   );
   const maxTotalArrayBufferBytes = normalizeByteLimit(
-    requestLimits.maxTotalArrayBufferBytes,
+    limits.maxTotalArrayBufferBytes,
     maxArrayBufferBytes
   );
 
@@ -346,8 +349,8 @@ function createSandboxProxy(base, audit) {
 
 /**
  * @param {unknown} state
- * @param {{ blockedAccesses: Set<string> }} audit
- * @param {unknown} [globals]
+ * @param {{ blockedAccesses: Set<string>, blockedAllocations: { kind: string, requestedBytes: number, message: string }[], totalArrayBufferBytes: number }} audit
+ * @param {unknown} globals
  * @param {{ maxArrayBufferBytes: number, maxTotalArrayBufferBytes: number }} limits
  * @returns {any}
  */
@@ -424,7 +427,6 @@ async function executeWithVmTimeout(code, sandbox, timeout) {
   const context = vm.createContext({ sandbox });
   const exec = script.runInContext(context, {
     timeout: Math.max(1, timeout),
-    microtaskMode: 'afterEvaluate',
   });
 
   return await Promise.resolve(exec);

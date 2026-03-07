@@ -610,6 +610,59 @@ core 内部未覆盖/陈旧热点：
 2. `js/agents/runtime/core/errors/error-taxonomy.js`
 3. `js/agents/plugins/debug/logger.js`
 
+## 18. 进度更新（2026-03-07 第八轮，TSC 热点第五批）
+
+继续推进下一批热点：
+
+- `js/agents/runtime/core/js-sandbox-worker.node.js`
+- `js/agents/runtime/core/errors/error-taxonomy.js`
+- `js/agents/plugins/debug/logger.js`
+
+结果：
+
+- `npx tsc -p js/agents/tsconfig.json --pretty false`
+  - 诊断从 **272** 降到 **249**
+  - 单轮减少 **23** 条
+
+### 本轮修复内容
+
+1. `js/agents/runtime/core/js-sandbox-worker.node.js`
+   - 收窄 array-like / typed-array / requestLimits 的输入结构
+   - 修复 `assertArrayBuffer()` 传参类型
+   - 修正 `createRestrictedGlobals()` audit 参数契约
+   - 移除 Node `vm` 类型定义中不存在的 `microtaskMode` 选项，避免伪契约
+
+2. `js/agents/runtime/core/errors/error-taxonomy.js`
+   - 增加 `ClassifiedError`
+   - 对 `retryable / category / code / status` 做显式错误对象收窄
+
+3. `js/agents/plugins/debug/logger.js`
+   - 增加 `LoggerPluginContext`
+   - 显式声明 `_loggerUnsubs` 生命周期字段
+   - 修正 `registerEventListeners()` 返回类型
+
+### 验证
+
+- `tests/unit/agents/runtime/core/js-sandbox-worker.node.test.js`
+- `tests/unit/agents/plugins/debug/logger.test.js`
+- `tests/unit/agents/core/plugin.test.js`
+- `tests/integration/agents/plugins/event-driven.test.js`
+
+均已通过。
+
+### 当前状态
+
+- 全量 agents 测试仍然保持 **20,058 / 0 fail**
+- TSC 诊断已降到 **249**
+
+### 下一步
+
+继续进入下一批热点：
+
+1. `js/agents/runtime/core/stage-rpc-bridge.js`
+2. `js/agents/plugins/transports/process-transport.js`
+3. `js/agents/stages/design/agent-loop.js`
+
 ## 12. 代码质量回看（2026-03-07）
 
 按“不能用 `any`/`unknown` 逃避问题、不能靠降行为换绿灯”的标准，回看了本轮之前提交，确认存在两类需要纠正的修法：
