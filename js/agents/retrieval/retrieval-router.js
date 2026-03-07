@@ -25,6 +25,40 @@ export const BM25_SCHEMA_VERSION = 1;
 
 const _bm25PersistQueues = new WeakMap();
 
+/**
+ * @typedef {{
+ *   topK?: number,
+ *   windowSize?: number,
+ *   useBm25?: boolean,
+ *   useGrep?: boolean,
+ *   grepAsyncThreshold?: number,
+ *   grepYieldEvery?: number,
+ *   minGrepHits?: number,
+ *   bm25MinScore?: number,
+ *   signal?: AbortSignal,
+ *   logger?: { warn?: Function, debug?: Function, info?: Function },
+ *   bm25SnapshotStats?: Record<string, number>,
+ *   onBm25SnapshotIssue?: (issue: Record<string, unknown>) => void,
+ *   bm25?: Record<string, unknown>,
+ *   persistBm25Index?: boolean,
+ *   awaitPersistBm25?: boolean,
+ *   grepRegex?: boolean,
+ *   caseSensitive?: boolean,
+ *   scoreMerge?: Record<string, unknown>,
+ *   scoring?: Record<string, unknown>,
+ *   bm25Store?: { get?: (key: string) => Promise<unknown>, set?: (key: string, value: unknown) => Promise<unknown> },
+ *   bm25Cache?: Map<string, unknown>,
+ *   mmr?: false | { topK?: number, lambda?: number, seedByGap?: boolean }
+ * }} RetrievalConfig
+ *
+ * @typedef {{
+ *   logger?: { warn?: Function, debug?: Function, info?: Function },
+ *   maxSnapshotChars?: number,
+ *   snapshotStats?: Record<string, number> | null,
+ *   onSnapshotIssue?: ((issue: Record<string, unknown>) => void) | null
+ * }} Bm25LoadOptions
+ */
+
 function getGapId(gap) {
   if (!gap || !isPlainObject(gap)) return null;
   const id = gap.gapId || gap.id || null;
@@ -158,7 +192,7 @@ function isCompatibleBm25Index(index, chunks) {
 /**
  * @param {any} store
  * @param {string} key
- * @param {{ logger?: any, maxSnapshotChars?: number }} [options]
+ * @param {Bm25LoadOptions} [options]
  */
 async function loadBm25IndexFromStore(
   store,
@@ -306,20 +340,7 @@ function sleep0() {
  *
  * @param {{sourceId:string,chunks:Array<{chunkId:string,text:string,locator:any}>,toc?:any[],fullText?:string}} sourceIndex
  * @param {Array<any>} gaps
- * @param {object=} config - Retrieval configuration
- * @param {number=} config.topK - Max results per gap (default: 8). Must be finite positive integer.
- * @param {number=} config.windowSize - Context window size (default: 1). Must be finite non-negative integer.
- * @param {boolean=} config.useBm25 - Enable BM25 search (default: true)
- * @param {boolean=} config.useGrep - Enable grep search (default: true)
- * @param {number=} config.grepAsyncThreshold - Async threshold for grep (default: 2000). Must be finite non-negative integer.
- * @param {number=} config.grepYieldEvery - Yield interval for async grep (default: 200). Must be finite positive integer.
- * @param {number=} config.minGrepHits - Min grep hits before using BM25 (default: 15). Must be finite non-negative integer.
- * @param {number=} config.bm25MinScore - Min BM25 score threshold (default: 0.5). Must be finite non-negative number.
- * @param {object=} config.mmr - MMR diversity config
- * @param {number=} config.mmr.topK - MMR selection size. Must be finite positive integer.
- * @param {number=} config.mmr.lambda - MMR diversity weight (default: 0.7). Must be finite number in [0,1].
- * @param {AbortSignal=} config.signal - Cancellation signal
- * @param {object=} config.logger - Logger instance
+ * @param {RetrievalConfig} [config] - Retrieval configuration
  * @returns {Promise<Array<{chunkId:string,sourceId:string,locator:any,text:string,score?:number,relevance?:string,matchedGapIds?:string[]}>>}
  * @note All numeric parameters reject NaN and Infinity (except where explicitly documented). Invalid values fall back to defaults.
  */
@@ -509,7 +530,7 @@ export async function retrieve(sourceIndex, gaps, config = {}) {
 
   const mmrCfg = config.mmr;
   // Default: enable MMR dedup + diversity selection unless explicitly disabled.
-  const diversify = mmrCfg === undefined ? true : mmrCfg === true || isPlainObject(mmrCfg);
+  const diversify = mmrCfg !== false;
   if (diversify) {
     const hits = Array.from(byChunkId.values()).filter((row) => row && row.relevance === "hit" && typeof row.score === "number");
     const uniqueHits = hits.length;
@@ -606,6 +627,9 @@ export async function retrieveAsync(sourceIndex, gaps, config = {}) {
  * Provides a stable surface for runtimes that expect `new RetrievalRouter()`.
  */
 export class RetrievalRouter {
+  /**
+   * @param {RetrievalConfig} [defaultConfig]
+   */
   constructor(defaultConfig = {}) {
     this.defaultConfig = isPlainObject(defaultConfig) ? { ...defaultConfig } : {};
   }

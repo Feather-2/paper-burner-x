@@ -517,6 +517,50 @@ core 内部未覆盖/陈旧热点：
 2. `js/agents/runtime/core/orchestrator-core.js`
 3. `js/agents/plugins/side-effects/side-effect-journal-helpers.js`
 
+## 16. 进度更新（2026-03-07 第六轮，TSC 热点第三批）
+
+继续推进下一批热点：
+
+- `js/agents/retrieval/retrieval-router.js`
+- `js/agents/runtime/core/orchestrator-core.js`
+
+结果：
+
+- `npx tsc -p js/agents/tsconfig.json --pretty false`
+  - 诊断从 **339** 降到 **306**
+  - 单轮减少 **33** 条
+
+### 本轮修复内容
+
+1. `js/agents/retrieval/retrieval-router.js`
+   - 引入 `RetrievalConfig` / `Bm25LoadOptions`
+   - 清理 `retrieve()` 的 JSDoc 结构错误，修正重复的 `mmr` 声明
+   - 为 `persistBm25Index / awaitPersistBm25 / grepRegex / caseSensitive / scoreMerge / scoring / seedByGap` 等配置补齐类型
+   - 修正 `mmr !== false` 语义判断，避免把布尔开关和对象配置混淆
+
+2. `js/agents/runtime/core/orchestrator-core.js`
+   - 补齐 `AgentOrchestratorOptions` / `RegisterStageOptions`
+   - 为 mixin 注入的方法增加显式声明：`registerAgent/start/_emitRunFailed/_emitRunEnded/_getEffectiveConcurrencyLimit/_rejectParallelWaiters`
+   - 收紧 `services` / `container` / `configValidation` / `eventBusBackpressure` 的结构化类型
+   - 修正 `getStatus()` 返回类型为 `OrchestratorStateValue`
+
+### 验证
+
+- `tests/unit/agents/retrieval/retrieval-router.test.js`
+- `tests/integration/agents/retrieval-router.vitest.test.js`
+- `tests/unit/agents/runtime/core/orchestrator-core.test.js`
+- `tests/integration/agents/runtime.test.js`
+
+均已通过。
+
+### 下一步
+
+继续进入下一批热点：
+
+1. `js/agents/plugins/side-effects/side-effect-journal-helpers.js`
+2. `js/agents/mcp/mcp-client.js`
+3. `js/agents/runtime/core/api/stage-api-helpers.js`
+
 ## 12. 代码质量回看（2026-03-07）
 
 按“不能用 `any`/`unknown` 逃避问题、不能靠降行为换绿灯”的标准，回看了本轮之前提交，确认存在两类需要纠正的修法：

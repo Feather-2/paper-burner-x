@@ -21,6 +21,40 @@ const logger = createLogger("runtime/orchestrator");
 
 /**
  * @typedef {import("./constants.js").OrchestratorState[keyof import("./constants.js").OrchestratorState]} OrchestratorStateValue
+ * @typedef {{
+ *   mode?: string,
+ *   scenario?: string,
+ *   constraints?: Record<string, unknown>,
+ *   services?: Record<string, unknown> & {
+ *     eventBusBackpressure?: Record<string, unknown> | false,
+ *     backpressure?: Record<string, unknown> | false,
+ *     configValidation?: Record<string, unknown>,
+ *     degradationMatrix?: unknown,
+ *     agents?: unknown,
+ *     childAgents?: unknown,
+ *     container?: { get?: (id: string) => unknown, tryGet?: (id: string) => unknown }
+ *   },
+ *   eventBus?: EventBus,
+ *   runId?: string,
+ *   scheduling?: { mode?: string, maxConcurrency?: number },
+ *   degradationMatrix?: object,
+ *   configValidation?: Record<string, unknown>
+ * }} AgentOrchestratorOptions
+ *
+ * @typedef {{
+ *   actor?: string,
+ *   rawActor?: string,
+ *   timeoutMs?: number,
+ *   configSchema?: Record<string, unknown>,
+ *   configValidation?: Record<string, unknown>,
+ *   retryPolicy?: unknown,
+ *   requiredServices?: string[],
+ *   statePrefix?: string,
+ *   tools?: string[],
+ *   dependencies?: string[]
+ * }} StageRegistrationOptions
+ *
+ * @typedef {StageRegistrationOptions} RegisterStageOptions
  */
 
 /**
@@ -54,7 +88,7 @@ export class AgentOrchestrator extends DisposableBase {
     if (typeof this.eventBus.enableBackpressure === "function") {
       const cfg = this._services?.eventBusBackpressure ?? this._services?.backpressure;
       if (cfg !== false) {
-        const opts = isPlainObject(cfg) ? cfg : {};
+        const opts = /** @type {{ deferNonCoalesced?: boolean, batchWindowMs?: number, maxQueueSize?: number, dropPolicy?: "oldest" | "newest" }} */ (isPlainObject(cfg) ? cfg : {});
         try {
           this.eventBus.enableBackpressure({ deferNonCoalesced: opts.deferNonCoalesced ?? false, ...opts });
         } catch (err) {
@@ -87,11 +121,13 @@ export class AgentOrchestrator extends DisposableBase {
     this._degradationMatrixPromise = null;
     this._lastOperationLevel = null;
 
-    const globalCfg = isPlainObject(configValidation)
-      ? configValidation
-      : isPlainObject(this._services?.configValidation)
-        ? this._services.configValidation
-        : {};
+    const globalCfg = /** @type {Record<string, unknown>} */ (
+      isPlainObject(configValidation)
+        ? configValidation
+        : isPlainObject(this._services?.configValidation)
+          ? this._services.configValidation
+          : {}
+    );
     this._configValidation = {
       strict: globalCfg.strict === true,
       coerce: globalCfg.coerce === true,
@@ -134,6 +170,23 @@ export class AgentOrchestrator extends DisposableBase {
     };
   }
 
+  /** @param {unknown} _agent */
+  registerAgent(_agent) {}
+
+  start() {}
+
+  /** @param {{ error?: unknown, stage?: string }} [_info] */
+  _emitRunFailed(_info) {}
+
+  /** @param {{ reason?: string }} [_info] */
+  _emitRunEnded(_info) {}
+
+  /** @returns {Promise<number>} */
+  async _getEffectiveConcurrencyLimit() { return this._maxConcurrency; }
+
+  /** @param {string} _reason */
+  _rejectParallelWaiters(_reason) {}
+
   /**
    * @returns {Promise<any|null>}
    */
@@ -167,11 +220,13 @@ export class AgentOrchestrator extends DisposableBase {
    */
   async _resolveMatrixFromContainer() {
     const container = this._services?.container;
-    if (!container || typeof container.get !== "function") return null;
+    if (!container || (typeof container.get !== "function" && typeof container.tryGet !== "function")) return null;
 
     try {
       const resolved = await maybeAwait(
-        typeof container.tryGet === "function" ? container.tryGet(ServiceId.DEGRADATION_MATRIX) : container.get(ServiceId.DEGRADATION_MATRIX)
+        typeof container.tryGet === "function"
+          ? container.tryGet(ServiceId.DEGRADATION_MATRIX)
+          : container.get?.(ServiceId.DEGRADATION_MATRIX)
       );
       if (!isDegradationMatrixLike(resolved)) return null;
       this._degradationMatrix = resolved;
@@ -203,14 +258,7 @@ export class AgentOrchestrator extends DisposableBase {
    *
    * @param {string} name - Stage name
    * @param {(ctx: any, input: any, api: any) => Promise<any>} handler
-   * @param {object} [options]
-   * @param {string} [options.actor]
-   * @param {number} [options.timeoutMs]
-   * @param {object} [options.retryPolicy]
-   * @param {string[]} [options.requiredServices] - Services this stage depends on
-   * @param {string} [options.statePrefix] - StateBus namespace prefix
-   * @param {string[]} [options.tools] - Tools this stage uses
-   * @param {string[]} [options.dependencies] - Other stage names that must run before this one
+   * @param {RegisterStageOptions} [options]
    */
   registerStage(name, handler, options = {}) {
     if (typeof name !== "string" || !name || !name.trim()) throw new TypeError("registerStage: name must be a non-empty string");
@@ -219,6 +267,7 @@ export class AgentOrchestrator extends DisposableBase {
     const actorRaw = toNonEmptyString(options.actor);
     const validActor = actorRaw && isValidActorType(actorRaw) ? actorRaw : undefined;
 
+    /** @type {StageRegistrationOptions} */
     const normalizedOptions = {
       actor: validActor,
       rawActor: actorRaw || undefined,
@@ -452,7 +501,7 @@ export class AgentOrchestrator extends DisposableBase {
    * child agent count, and run context. Useful for external inspection
    * and multi-agent coordination dashboards.
    *
-   * @returns {{ state: string, runId: string, schedulingMode: string, inFlight: number, maxConcurrency: number, stages: Array<{ name: string, actor: string, dependencies: string[] }>, childAgentCount: number, aborted: boolean }}
+   * @returns {{ state: OrchestratorStateValue, runId: string, schedulingMode: string, inFlight: number, maxConcurrency: number, stages: Array<{ name: string, actor: string, dependencies: string[] }>, childAgentCount: number, aborted: boolean }}
    */
   getStatus() {
     const stages = [];
