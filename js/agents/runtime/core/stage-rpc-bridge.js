@@ -48,10 +48,11 @@ function resolveEndpoint(endpoint, targetStageId) {
  */
 function serializeRpcError(err) {
   if (err instanceof Error) {
+    const errorLike = /** @type {Error & { code?: string }} */ (err);
     const out = {
       message: err.message || "Unknown RPC error",
       name: err.name || undefined,
-      code: typeof err.code === "string" ? err.code : undefined,
+      code: typeof errorLike.code === "string" ? errorLike.code : undefined,
     };
     return out;
   }
@@ -79,20 +80,42 @@ function unwrapStagePayload(incoming) {
 }
 
 /**
+ * @typedef {(payload: unknown, meta: { from: string, to: string, endpoint: string, requestId: string | null }) => Promise<unknown>} StageRpcHandler
+ */
+
+/**
  * @param {unknown} response
  * @returns {{ ok: true, data: unknown } | { ok: false, error: { message: string, code?: string, name?: string } } | null}
  */
 function unwrapStageResponseEnvelope(response) {
-  const direct = response && typeof response === "object" && response.__stageRpcResponse
-    ? response
-    : (response && typeof response === "object" && response.data && response.data.__stageRpcResponse
-      ? response.data
+  const root = response && typeof response === "object"
+    ? /** @type {{ __stageRpcResponse?: unknown, data?: unknown, ok?: unknown, error?: unknown }} */ (response)
+    : null;
+  const nestedData = root && root.data && typeof root.data === "object"
+    ? /** @type {{ __stageRpcResponse?: unknown, ok?: unknown, data?: unknown, error?: unknown }} */ (root.data)
+    : null;
+  const direct = root?.__stageRpcResponse
+    ? root
+    : (nestedData?.__stageRpcResponse
+      ? nestedData
       : null);
   if (!direct || typeof direct !== "object") return null;
   if (direct.ok === true) return { ok: true, data: direct.data };
   if (direct.ok === false) return { ok: false, error: serializeRpcError(direct.error) };
   return null;
 }
+
+/**
+ * @typedef {{
+ *   __stageRpcResponse: true,
+ *   ok: boolean,
+ *   data?: unknown,
+ *   error?: { message: string, code?: string, name?: string },
+ *   from: string,
+ *   requestId: string | null,
+ *   v: number
+ * }} StageRpcResponseEnvelope
+ */
 
 /**
  * @typedef {Object} StageRpcBridgeOptions
@@ -133,7 +156,7 @@ export class StageRpcBridge {
   /**
    * Register an RPC handler for an endpoint.
    * @param {string} endpoint - Format: stageName:action
-   * @param {(payload: unknown, meta: { from: string, to: string, endpoint: string, requestId: string | null }) => Promise<unknown>} handler
+   * @param {StageRpcHandler} handler
    * @returns {{ ok: true } | { ok: false, error: string }}
    */
   registerHandler(endpoint, handler) {
@@ -158,23 +181,23 @@ export class StageRpcBridge {
           endpoint: name,
           requestId,
         });
-        return {
+        return /** @type {void | Promise<void>} */ (/** @type {unknown} */ (/** @type {StageRpcResponseEnvelope} */ ({
           __stageRpcResponse: true,
           ok: true,
           data,
           from: this._stageId,
           requestId,
           v: STAGE_RPC_META_VERSION,
-        };
+        })));
       } catch (err) {
-        return {
+        return /** @type {void | Promise<void>} */ (/** @type {unknown} */ (/** @type {StageRpcResponseEnvelope} */ ({
           __stageRpcResponse: true,
           ok: false,
           error: serializeRpcError(err),
           from: this._stageId,
           requestId,
           v: STAGE_RPC_META_VERSION,
-        };
+        })));
       }
     });
 

@@ -637,6 +637,65 @@ core 内部未覆盖/陈旧热点：
    - 对 `retryable / category / code / status` 做显式错误对象收窄
 
 3. `js/agents/plugins/debug/logger.js`
+
+## 19. 进度更新（2026-03-07 第九轮，TSC 热点第六批）
+
+继续推进下一批热点：
+
+- `js/agents/runtime/core/stage-rpc-bridge.js`
+- `js/agents/plugins/transports/process-transport.js`
+- `js/agents/stages/design/agent-loop.js`
+- `js/agents/shared/utils/backpressure-init.js`
+
+结果：
+
+- `npx tsc -p js/agents/tsconfig.json --pretty false`
+  - 诊断从 **249** 降到 **229**
+  - 单轮减少 **20** 条
+
+### 本轮修复内容
+
+1. `js/agents/runtime/core/stage-rpc-bridge.js`
+   - 增加 `StageRpcResponseEnvelope`
+   - 收紧 `serializeRpcError()` 与 response envelope 解包逻辑
+   - 让 handler 返回值与 `MessageBus.on()` 的签名兼容
+
+2. `js/agents/plugins/transports/process-transport.js`
+   - 补齐 `ProcessTransportOptions`
+   - 收紧 `ChildProcessLike`（增加 `pid`）
+   - 修正 `spawn()` 返回值与 connect timeout 错误对象的类型
+
+3. `js/agents/stages/design/agent-loop.js`
+   - 增加 `DesignCoreRuntime`
+   - 补 `_activeStep` 字段声明
+   - 收紧 `_initCoreRuntime()` 返回契约
+
+4. `js/agents/shared/utils/backpressure-init.js`
+   - 把 `enableBackpressureIfNeeded()` 调整为真正的边界收窄函数
+   - 接受 `unknown` 输入，内部收窄成 `BackpressureCapableEventBus`
+   - 这样既保持运行时兼容，也避免调用方被迫伪装成精确 `EventBus`
+
+### 验证
+
+- `tests/unit/agents/runtime/core/stage-rpc-bridge.test.js`
+- `tests/unit/agents/plugins/transports/process-transport.test.js`
+- `tests/unit/agents/stages/design/agent-loop.test.js`
+- `tests/integration/agents/stages/design.test.js`
+
+均已通过。
+
+### 当前状态
+
+- 全量 agents 测试仍然保持 **20,058 / 0 fail**
+- TSC 诊断已降到 **229**
+
+### 下一步
+
+继续进入下一批热点：
+
+1. `js/agents/vfs/operations.js`
+2. `js/agents/core/node-compat/shims/crypto.js`
+3. `js/agents/core/node-compat/shims/http.js`
    - 增加 `LoggerPluginContext`
    - 显式声明 `_loggerUnsubs` 生命周期字段
    - 修正 `registerEventListeners()` 返回类型

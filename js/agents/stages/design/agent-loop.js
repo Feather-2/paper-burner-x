@@ -1,4 +1,5 @@
 import { enableBackpressureIfNeeded } from "../../shared/utils/backpressure-init.js";
+import { EventBus } from "../../core/event-bus.js";
 import { AgentStatus, BaseAgentLoop, StagePausedError, createLifecycleEmitter, getEmitFn } from "../../runtime/index.js";
 import { DesignPhase } from "./states.js";
 import {
@@ -33,6 +34,25 @@ export { DESIGN_AGENT_TOOL_DEFINITIONS } from "./design-tools.js";
  * @typedef {import("./internal/design-loop-types.js").DesignStageApi} DesignStageApi
  * @typedef {import("./internal/design-loop-types.js").DesignPhaseState} DesignPhaseState
  * @typedef {import("./internal/design-loop-types.js").DesignLoopState} DesignLoopState
+ * @typedef {{
+ *   runContext: object,
+ *   runId: string,
+ *   emit: Function | null,
+ *   lifecycle: object,
+ *   watchdog: object | null,
+ *   watchdogSettings: object | null,
+ *   handleWatchdogHealth: Function | null,
+ *   offRefineWatchdog: Function | null,
+ *   stageApi: { signal?: AbortSignal },
+ *   iter: { count: number },
+ *   traceContext: object | null,
+ *   skipReview: boolean,
+ *   startExecution: Function,
+ *   finishExecution: Function,
+ *   emitDeckUpdate: Function,
+ *   buildLoopState: (step: string) => { phase: string | undefined, step: string },
+ *   context: DesignStageApi
+ * }} DesignCoreRuntime
  */
 
 /**
@@ -64,6 +84,9 @@ export class DesignAgentLoop extends BaseAgentLoop {
    * @type {(newStatus: string, metadata?: Record<string, any>) => Promise<string|null>}
    */
   _transitionTo = DesignAgentLoop.prototype._transitionTo;
+
+  /** @private @type {string | null} */
+  _activeStep = null;
 
   /**
    * @param {DesignLoopConstructorOptions} [options]
@@ -308,7 +331,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
    * @private
    * @param {any} contentPackage
    * @param {DesignStageApi} context
-   * @returns {Promise<{runContext: object, runId: string, emit: Function, lifecycle: object, watchdog: object|null, watchdogSettings: object|null, handleWatchdogHealth: Function|null, offRefineWatchdog: Function|null, stageApi: object, iter: {count: number}, traceContext: object|null, skipReview: boolean, startExecution: Function, finishExecution: Function, emitDeckUpdate: Function, context: DesignStageApi}>}
+   * @returns {Promise<DesignCoreRuntime>}
    */
   async _initCoreRuntime(contentPackage, context = {}) {
     const runContext = context.runContext || {
@@ -329,7 +352,11 @@ export class DesignAgentLoop extends BaseAgentLoop {
 
     enableBackpressureIfNeeded(this.eventBus, context?.eventBusBackpressure ?? context?.backpressure);
 
-    const lifecycle = createLifecycleEmitter({ actor: "design", emit: this.emit, eventBus: this.eventBus });
+    const lifecycle = createLifecycleEmitter({
+      actor: "design",
+      emit: this.emit,
+      eventBus: this.eventBus instanceof EventBus ? this.eventBus : undefined,
+    });
     this._lifecycle = lifecycle;
 
     const { watchdog, watchdogSettings, handleWatchdogHealth, offRefineWatchdog } = await initWatchdogManager({
@@ -369,11 +396,11 @@ export class DesignAgentLoop extends BaseAgentLoop {
 
     const emitDeckUpdate = createDeckUpdateEmitter({ loop: this, emit, runId, watchdog, watchdogSettings, handleWatchdogHealth });
 
-    return {
+    return /** @type {DesignCoreRuntime} */ ({
       runContext, runId, emit, lifecycle, watchdog, watchdogSettings, handleWatchdogHealth,
       offRefineWatchdog, stageApi, iter, traceContext, skipReview,
       startExecution, finishExecution, emitDeckUpdate, buildLoopState, context,
-    };
+    });
   }
 
   /**

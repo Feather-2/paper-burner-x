@@ -40,6 +40,20 @@ const ALLOWED_JSONRPC_KEYS = new Set(["jsonrpc", "id", "method", "params", "resu
  */
 
 /**
+ * @typedef {object} ProcessTransportOptions
+ * @property {string} command
+ * @property {string[]} [args]
+ * @property {string} [cwd]
+ * @property {Record<string, string | undefined>} [env]
+ * @property {string[]} [allowedCommands]
+ * @property {string[]} [allowedCwdRoots]
+ * @property {string[]} [allowedEnvKeys]
+ * @property {number} [timeout]
+ * @property {number} [connectTimeout]
+ * @property {AbortSignal | null} [signal]
+ */
+
+/**
  * @typedef {object} PendingRequest
  * @property {(value: unknown) => void} resolve - 处理成功响应
  * @property {(reason?: unknown) => void} reject - 处理失败响应
@@ -280,19 +294,6 @@ function validateJsonRpcMessage(message) {
 }
 
 /**
- * @typedef {object} ProcessTransportOptions
- * @property {string} command - 可执行文件路径
- * @property {string[]} [args] - 命令行参数
- * @property {Record<string, string>} [env] - 环境变量
- * @property {string} [cwd] - 工作目录
- * @property {number} [timeout] - 超时 (ms)
- * @property {AbortSignal} [signal] - 取消信号
- * @property {string[]} [allowedCommands] - 命令白名单 (命令名或绝对路径)
- * @property {string[]} [allowedCwdRoots] - 工作目录允许的根路径
- * @property {string[]} [allowedEnvKeys] - 可覆盖的环境变量键名
- */
-
-/**
  * @typedef {object} ProcessMessage
  * @property {string} [jsonrpc] - JSON-RPC 版本
  * @property {string|number} [id] - 请求 ID
@@ -310,6 +311,7 @@ function validateJsonRpcMessage(message) {
  * @property {(event: string, handler: (...args: any[]) => unknown) => unknown} on
  * @property {(signal?: string) => unknown} kill
  * @property {boolean} killed
+ * @property {number} [pid]
  */
 
 export class ProcessTransport extends EventEmitter {
@@ -367,6 +369,7 @@ export class ProcessTransport extends EventEmitter {
     this.args = normalizeArgs(options.args);
     this.env = sanitizeEnv(options.env, options.allowedEnvKeys);
     this.timeout = options.timeout || 30000;
+    /** @type {number} */
     this.connectTimeout = Number.isFinite(Number(options.connectTimeout)) && Number(options.connectTimeout) > 0
       ? Number(options.connectTimeout)
       : Math.max(Number(this.timeout) || 0, 1000);
@@ -416,12 +419,12 @@ export class ProcessTransport extends EventEmitter {
       };
 
       try {
-        this.process = spawn(this.command, this.args, {
+        this.process = /** @type {ChildProcessLike} */ (spawn(this.command, this.args, {
           cwd: this.cwd,
           env: this.env,
           stdio: ["pipe", "pipe", "pipe"],
           signal: this.signal,
-        });
+        }));
 
         this.process.on("error", (err) => {
           this.connected = false;
@@ -463,9 +466,9 @@ export class ProcessTransport extends EventEmitter {
         // 连接超时: 必须出现 spawn/stdout 才会视为连接成功
         connectTimer = setTimeout(() => {
           if (!settled) {
-            const err = new Error(
+            const err = /** @type {Error & { code?: string }} */ (new Error(
               `ProcessTransport connect timeout after ${this.connectTimeout}ms (command: ${this.command})`
-            );
+            ));
             err.code = "ERR_PROCESS_TRANSPORT_CONNECT_TIMEOUT";
             settle(false, err);
           }
