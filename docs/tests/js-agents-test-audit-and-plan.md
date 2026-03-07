@@ -476,6 +476,47 @@ core 内部未覆盖/陈旧热点：
 3. `js/agents/retrieval/retrieval-router.js`
 4. `js/agents/runtime/core/orchestrator-core.js`
 
+## 15. 进度更新（2026-03-07 第五轮，TSC 热点第二批）
+
+继续沿着 `node-compat` 的高密度文件推进，本轮处理：
+
+- `js/agents/core/node-compat/npm/tarball.js`
+- `js/agents/core/node-compat/shims/assert.js`
+
+结果：
+
+- `npx tsc -p js/agents/tsconfig.json --pretty false`
+  - 诊断从 **351** 降到 **339**
+  - 单轮减少 **12** 条
+
+### 本轮修复内容
+
+1. `js/agents/core/node-compat/npm/tarball.js`
+   - 增加 `TarballError`
+   - 用 `toArrayBufferExact()` 显式把 `Uint8Array` 转成精确 `ArrayBuffer`
+   - 修复 `Blob` / `crypto.subtle.digest` 的 `BufferSource` 类型不匹配
+   - 避免依赖未收窄的全局 `Buffer`，改为从 `globalThis.Buffer` 显式取值
+
+2. `js/agents/core/node-compat/shims/assert.js`
+   - 增加 `ErrorWithCode` / `hasErrorCode()`
+   - 修复 `throws` / `rejects` 分支里对 `err.code` 的不安全访问
+   - 保持断言语义不变，仅收紧错误对象契约
+
+### 验证
+
+- `tests/unit/agents/core/node-compat/npm/tarball.test.js`
+- `tests/unit/agents/core/node-compat/shims/assert.test.js`
+
+均已通过。
+
+### 下一步
+
+继续进入下一批热点：
+
+1. `js/agents/retrieval/retrieval-router.js`
+2. `js/agents/runtime/core/orchestrator-core.js`
+3. `js/agents/plugins/side-effects/side-effect-journal-helpers.js`
+
 ## 12. 代码质量回看（2026-03-07）
 
 按“不能用 `any`/`unknown` 逃避问题、不能靠降行为换绿灯”的标准，回看了本轮之前提交，确认存在两类需要纠正的修法：

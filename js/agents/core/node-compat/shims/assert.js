@@ -13,6 +13,18 @@
  */
 
 /**
+ * @typedef {Error & { code?: string }} ErrorWithCode
+ */
+
+/**
+ * @param {unknown} value
+ * @returns {value is ErrorWithCode}
+ */
+function hasErrorCode(value) {
+  return !!value && typeof value === 'object' && 'code' in value;
+}
+
+/**
  * AssertionError class - thrown when an assertion fails
  */
 export class AssertionError extends Error {
@@ -276,7 +288,8 @@ assert.throws = function throws(fn, errorOrMessage, message) {
         });
       }
     } else if (typeof errorOrMessage === 'object') {
-      const expected = errorOrMessage;
+      /** @type {{ message?: string | RegExp, code?: string }} */
+      const expected = errorOrMessage || {};
       const err = thrownError;
 
       if (expected.message !== undefined) {
@@ -302,10 +315,10 @@ assert.throws = function throws(fn, errorOrMessage, message) {
         }
       }
 
-      if (expected.code !== undefined && err.code !== expected.code) {
+      if (expected.code !== undefined && (!hasErrorCode(err) || err.code !== expected.code)) {
         throw new AssertionError({
           message: message || 'The error code did not match',
-          actual: err.code,
+          actual: hasErrorCode(err) ? err.code : undefined,
           expected: expected.code,
           operator: 'throws',
           stackStartFn: throws,
@@ -413,7 +426,8 @@ assert.rejects = async function rejects(asyncFn, errorOrMessage, message) {
         });
       }
     } else if (typeof errorOrMessage === 'object') {
-      const expected = errorOrMessage;
+      /** @type {{ message?: string | RegExp, code?: string }} */
+      const expected = errorOrMessage || {};
       const err = rejectionReason;
 
       if (expected.message !== undefined) {
@@ -439,10 +453,10 @@ assert.rejects = async function rejects(asyncFn, errorOrMessage, message) {
         }
       }
 
-      if (expected.code !== undefined && err.code !== expected.code) {
+      if (expected.code !== undefined && (!hasErrorCode(err) || err.code !== expected.code)) {
         throw new AssertionError({
           message: message || 'The rejection code did not match',
-          actual: err.code,
+          actual: hasErrorCode(err) ? err.code : undefined,
           expected: expected.code,
           operator: 'rejects',
           stackStartFn: rejects,

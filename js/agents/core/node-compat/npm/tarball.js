@@ -1,6 +1,10 @@
 const TAR_BLOCK_SIZE = 512;
 
 /**
+ * @typedef {Error & { code?: string, cause?: unknown }} TarballError
+ */
+
+/**
  * @typedef {object} TarHeader
  * @property {string} name
  * @property {number} size
@@ -16,6 +20,15 @@ const TAR_BLOCK_SIZE = 512;
 function toUint8Array(buffer) {
   if (buffer instanceof Uint8Array) return buffer;
   return new Uint8Array(buffer);
+}
+
+/**
+ * Clone bytes into a plain ArrayBuffer so browser APIs receive an exact buffer.
+ * @param {Uint8Array} bytes
+ * @returns {ArrayBuffer}
+ */
+function toArrayBufferExact(bytes) {
+  return Uint8Array.from(bytes).buffer;
 }
 
 /**
@@ -71,7 +84,8 @@ async function inflateWithDecompressionStream(gzipBytes) {
   if (typeof DecompressionStream !== 'function') {
     throw new Error('DecompressionStream is not available');
   }
-  const input = new Blob([gzipBytes]).stream();
+  const blobPart = toArrayBufferExact(gzipBytes);
+  const input = new Blob([blobPart]).stream();
   const stream = input.pipeThrough(new DecompressionStream('gzip'));
   const output = await new Response(stream).arrayBuffer();
   return new Uint8Array(output);
@@ -90,7 +104,7 @@ function looksLikeGzip(bytes) {
  * @returns {Error}
  */
 function createInvalidGzipError(cause) {
-  const error = new Error('Failed to decompress gzip tarball');
+  const error = /** @type {TarballError} */ (new Error('Failed to decompress gzip tarball'));
   error.code = 'ERR_TARBALL_GZIP_INVALID';
   error.cause = cause;
   return error;
@@ -300,13 +314,15 @@ function bytesToHex(bytes) {
  */
 async function computeSha1Hex(bytes) {
   if (globalThis.crypto?.subtle?.digest) {
-    const digest = await globalThis.crypto.subtle.digest('SHA-1', bytes);
+    const digestSource = toArrayBufferExact(bytes);
+    const digest = await globalThis.crypto.subtle.digest('SHA-1', digestSource);
     return bytesToHex(new Uint8Array(digest));
   }
 
-  if (typeof Buffer === 'function') {
+  const NodeBuffer = globalThis.Buffer;
+  if (NodeBuffer && typeof NodeBuffer.from === 'function') {
     const cryptoMod = await import('node:crypto');
-    return cryptoMod.createHash('sha1').update(Buffer.from(bytes)).digest('hex');
+    return cryptoMod.createHash('sha1').update(NodeBuffer.from(bytes)).digest('hex');
   }
 
   throw new Error('SHA-1 digest is not available in this runtime');
@@ -431,7 +447,7 @@ export class TarballManager {
     if (expectedShasum !== undefined && expectedShasum !== null) {
       const normalizedExpected = normalizeShasum(expectedShasum);
       if (!normalizedExpected) {
-        const invalidShasumError = new TypeError(`Invalid expected shasum for ${url}`);
+        const invalidShasumError = /** @type {TypeError & { code?: string }} */ (new TypeError(`Invalid expected shasum for ${url}`));
         invalidShasumError.code = 'ERR_TARBALL_SHASUM_INVALID';
         throw invalidShasumError;
       }
@@ -482,7 +498,7 @@ export class TarballManager {
           throw createInvalidGzipError(error);
         }
       } else {
-        const unsupported = new Error('No gzip decompressor available in this runtime');
+        const unsupported = /** @type {TarballError} */ (new Error('No gzip decompressor available in this runtime'));
         unsupported.code = 'ERR_TARBALL_GZIP_UNSUPPORTED';
         throw unsupported;
       }
