@@ -6,6 +6,8 @@
  * @module plugins/context/io
  */
 
+import { fillNonCryptoRandomBytes } from '../../shared/utils/secure-id.js';
+
 // ── 常量 ──────────────────────────────────────────────────────────
 
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
@@ -26,7 +28,7 @@ export const SIGNAL_TYPES = new Set([
 // ── ULID (跨平台) ────────────────────────────────────────────────
 
 /**
- * 生成 ULID。优先 crypto.getRandomValues，回退 Math.random。
+ * 生成 ULID。优先 crypto.getRandomValues，回退到共享非加密 PRNG。
  * @returns {string}  26 字符 Crockford base32
  */
 export function ulid() {
@@ -58,10 +60,8 @@ function _randomBytes(n) {
     globalThis.crypto.getRandomValues(buf);
     return buf;
   } catch {
-    // 极端回退
-    const buf = new Uint8Array(n);
-    for (let i = 0; i < n; i++) buf[i] = Math.floor(Math.random() * 256);
-    return buf;
+    // 极端回退：保持跨模块一致的非加密随机策略。
+    return fillNonCryptoRandomBytes(new Uint8Array(n));
   }
 }
 

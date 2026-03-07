@@ -4,8 +4,10 @@ import { webcrypto } from 'node:crypto';
 import {
   cryptoRandomHex,
   cryptoRandomUuid,
+  fillNonCryptoRandomBytes,
   makeSecureId,
   makeSecureTimestampedId,
+  nonCryptoRandomHex,
   getSecureIdCapabilities,
   isSecureIdSupported,
 } from '../../../../../js/agents/shared/utils/secure-id.js';
@@ -131,6 +133,37 @@ describe('shared/utils/secure-id', () => {
       expect(() => cryptoRandomHex()).toThrow(
         'secure-id: crypto.getRandomValues is unavailable in this environment',
       );
+    });
+  });
+
+  describe('non-crypto fallback helpers', () => {
+    it('fillNonCryptoRandomBytes fills buffers with deterministic-looking non-zero bytes', () => {
+      vi.stubGlobal('crypto', undefined);
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2024-01-02T03:04:05.000Z'));
+
+      const first = fillNonCryptoRandomBytes(new Uint8Array(8));
+      const second = fillNonCryptoRandomBytes(new Uint8Array(8));
+
+      expect(first).toBeInstanceOf(Uint8Array);
+      expect(Array.from(first).some((value) => value !== 0)).toBe(true);
+      expect(Array.from(second).some((value) => value !== 0)).toBe(true);
+      expect(Array.from(second)).not.toEqual(Array.from(first));
+    });
+
+    it('nonCryptoRandomHex returns lower-case hex and advances across calls', () => {
+      vi.stubGlobal('crypto', undefined);
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2024-01-02T03:04:05.000Z'));
+
+      const first = nonCryptoRandomHex(8);
+      const second = nonCryptoRandomHex(8);
+
+      expect(first).toMatch(HEX_REGEX);
+      expect(first).toHaveLength(16);
+      expect(second).toMatch(HEX_REGEX);
+      expect(second).toHaveLength(16);
+      expect(second).not.toBe(first);
     });
   });
 

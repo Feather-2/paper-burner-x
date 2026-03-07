@@ -17,7 +17,7 @@
 
 ## 2. 审计结论（先看）
 
-结论很直接：**此前修复里确实出现过 4 处有异味的改动模式**，其中 4 处都已修正；另外还发现 3 处“不是这轮引入、但值得后续治理”的存量点。
+结论很直接：**此前修复里确实出现过 4 处有异味的改动模式**，这 4 处都已修正；此外审计中又发现 3 处随机/ID fallback 的存量异味，现也已完成第二轮治理。
 
 ### 已确认并修正的问题
 
@@ -69,24 +69,33 @@
    - `js/agents/runtime/tools/platform/index.js:85-118`
    - 判断：这里不是把所有环境拍平成 true；当前行为是“Node 侧按平台工具抽象视为可提供该能力，Browser 仍保留运行时探测”。这是抽象层语义，不是简单拍平。
 
-## 4. 仍存在的存量异味（未必是本轮引入）
+## 4. 第二轮治理：随机 / ID fallback 统一化
 
-以下点不一定由本轮修复引入，但从代码味道上看值得纳入后续治理：
+审计后继续治理了 3 个“不是这轮引入、但味道一致”的存量点，并统一到共享 fallback 策略：
 
-1. **`trace-propagator` 的随机 ID fallback 仍直接使用 `Math.random()`**
+1. **`trace-propagator` 的随机 ID fallback**
    - 位置：`js/agents/core/contracts/trace-propagator.js:68-82,240-241`
-   - 风险：与 `trace-context` 已恢复的 fallback 语义不一致
-   - 建议：抽出共享 fallback 随机源，统一 trace ID 非加密生成策略
+   - 原问题：直接使用 `Math.random()`
+   - 处理：改为复用 `shared/utils/secure-id.js` 中的 `nonCryptoRandomHex()`
 
-2. **`message-bus` 的 RPC/request ID 仍使用 `Math.random()`**
+2. **`message-bus` 的 RPC/request ID**
    - 位置：`js/agents/core/message-bus.js:69-85,363`
-   - 风险：中低。这里主要是本地唯一性，不是安全 ID，但仍有统一化空间
-   - 建议：迁移到 `shared/utils/secure-id.js` 或统一轻量 ID 生成器
+   - 原问题：`createRpcId()` / `createReplyToEventName()` 直接使用 `Math.random()`
+   - 处理：改为复用 `nonCryptoRandomHex()`，保留原命名结构但提升 fallback 一致性
 
-3. **`plugins/context/io.js` 的 ULID fallback 文档明确写了 `Math.random()`**
+3. **`plugins/context/io.js` 的 ULID fallback**
    - 位置：`js/agents/plugins/context/io.js:29,63`
-   - 风险：低到中。已文档化，但应确认是否真的接受这种质量下界
-   - 建议：若该 ULID 用于持久化主键，建议换成共享非加密 PRNG fallback
+   - 原问题：文档和实现都明确写了 `Math.random()` 回退
+   - 处理：改为复用 `fillNonCryptoRandomBytes()`，并更新注释为“共享非加密 PRNG”
+
+为支撑这轮统一化，还在：
+
+- `js/agents/shared/utils/secure-id.js`
+
+中新增了共享 fallback 能力：
+
+- `fillNonCryptoRandomBytes(buf)`
+- `nonCryptoRandomHex(bytes)`
 
 ## 5. 验证结果
 
@@ -99,6 +108,11 @@
 - trace fallback 修复验证通过：
   - `tests/unit/agents/plugins/telemetry/trace-context.test.js`
   - `tests/integration/agents/runtime/telemetry.test.js`
+- 第二轮随机/ID fallback 统一化验证通过：
+  - `tests/unit/agents/shared/utils/secure-id.test.js`
+  - `tests/unit/agents/core/contracts/trace-propagator.test.js`
+  - `tests/unit/agents/core/message-bus.test.js`
+  - `tests/unit/agents/plugins/context/io.test.js`
 - `npx tsc -p js/agents/tsconfig.json --pretty false`
   - 仍未全绿，但上述审计修复涉及的文件已不再报错
 
@@ -107,9 +121,9 @@
 这次完整回看后的判断：
 
 - **用户的担忧成立**：之前的确出现过“为了先过关而拍平类型/行为”的修法
-- **当前已纠正的部分**：4 处
+- **当前已纠正的部分**：7 处（首轮 4 处 + 第二轮 3 处）
 - **当前保留但已审查为合理的测试修正**：4 处
-- **后续应继续治理的存量异味**：3 处
+- **本审计报告范围内剩余未处理的同类异味**：0 处
 
 ## 7. 建议的后续规则
 

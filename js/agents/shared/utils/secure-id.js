@@ -1,3 +1,6 @@
+let fallbackPrngState = ((Date.now() ^ 0x9e3779b9) >>> 0) || 1;
+let fallbackCounter = 0;
+
 /**
  * @returns {Crypto}
  */
@@ -42,14 +45,48 @@ export function isSecureIdSupported() {
   return getSecureIdCapabilities().supported;
 }
 
-function insecureHex(bytes = 16) {
-  const n = Math.max(1, Math.floor(Number(bytes) || 16));
-  let out = "";
-  for (let i = 0; i < n; i += 1) {
-    const x = Math.floor(Math.random() * 256);
-    out += x.toString(16).padStart(2, "0");
+/**
+ * Fill a Uint8Array using a deterministic non-crypto PRNG fallback.
+ * The goal is stable uniqueness under degraded environments, not security.
+ *
+ * @param {Uint8Array} buf
+ * @returns {Uint8Array}
+ */
+export function fillNonCryptoRandomBytes(buf) {
+  const target = buf instanceof Uint8Array ? buf : new Uint8Array(0);
+  const nowPart = (Date.now() & 0xff) >>> 0;
+  const perfPart =
+    typeof performance !== "undefined" && typeof performance.now === "function"
+      ? (Math.floor(performance.now() * 1000) & 0xff) >>> 0
+      : 0;
+
+  for (let i = 0; i < target.length; i += 1) {
+    fallbackCounter = (fallbackCounter + 1) >>> 0;
+    fallbackPrngState ^= (fallbackPrngState << 13) >>> 0;
+    fallbackPrngState ^= fallbackPrngState >>> 17;
+    fallbackPrngState ^= (fallbackPrngState << 5) >>> 0;
+    target[i] = (fallbackPrngState + fallbackCounter + nowPart + perfPart + i) & 0xff;
   }
+
+  return target;
+}
+
+/**
+ * Lower-case hex encoded non-crypto random bytes.
+ *
+ * @param {number} [bytes=16]
+ * @returns {string}
+ */
+export function nonCryptoRandomHex(bytes = 16) {
+  const n = Math.max(1, Math.floor(Number(bytes) || 16));
+  const buf = fillNonCryptoRandomBytes(new Uint8Array(n));
+  let out = "";
+  for (const value of buf) out += value.toString(16).padStart(2, "0");
   return out;
+}
+
+function insecureHex(bytes = 16) {
+  return nonCryptoRandomHex(bytes);
 }
 
 /**

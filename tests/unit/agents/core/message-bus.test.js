@@ -142,6 +142,42 @@ describe('MessageBus', () => {
     });
   });
 
+  describe('fallback identifiers', () => {
+    it('request() uses non-crypto fallback ids when randomUUID is unavailable', async () => {
+      const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+      Object.defineProperty(globalThis, 'crypto', {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+
+      try {
+        const eventBus = new EventBus();
+        const client = new MessageBus(eventBus);
+        const server = new MessageBus(eventBus);
+        let capturedMeta = null;
+
+        eventBus.on('demo', (evt) => {
+          capturedMeta = evt.meta;
+        });
+
+        server.on('demo', () => ({ ok: true }));
+
+        const result = await client.request('demo', { hello: 'world' });
+
+        expect(result).toEqual({ ok: true });
+        expect(capturedMeta.requestId).toMatch(/^r[a-z0-9]+_[0-9a-f]+$/);
+        expect(capturedMeta.replyTo).toMatch(/^rpc\.response\.r_[0-9a-f]+_[0-9a-f]+$/);
+      } finally {
+        if (originalDescriptor) {
+          Object.defineProperty(globalThis, 'crypto', originalDescriptor);
+        } else {
+          Reflect.deleteProperty(globalThis, 'crypto');
+        }
+      }
+    });
+  });
+
   describe('init', () => {
     it('settles init when archive hydrate hangs', async () => {
       vi.useFakeTimers();

@@ -13,6 +13,7 @@
  */
 
 import { EventBus, isValidEventName } from './event-bus.js';
+import { nonCryptoRandomHex } from '../shared/utils/secure-id.js';
 
 /**
  * @typedef {import('./types.d.ts').EventBus} EventBusType
@@ -70,7 +71,7 @@ function createRpcId() {
   const c = globalThis?.crypto;
   const uuid = typeof c?.randomUUID === 'function' ? c.randomUUID() : null;
   if (uuid) return uuid.toLowerCase().replace(/-/g, '_');
-  return `r${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  return `r${Date.now().toString(36)}_${nonCryptoRandomHex(8)}`;
 }
 
 /**
@@ -80,10 +81,7 @@ function createReplyToEventName() {
   const c = globalThis?.crypto;
   const uuid = typeof c?.randomUUID === 'function' ? c.randomUUID() : null;
   if (uuid) return `rpc.response.${uuid.toLowerCase().replace(/-/g, '_')}`;
-
-  const partA = Math.random().toString(36).slice(2, 12) || '0';
-  const partB = Math.random().toString(36).slice(2, 12) || '0';
-  return `rpc.response.r_${partA}_${partB}`;
+  return `rpc.response.r_${nonCryptoRandomHex(6)}_${nonCryptoRandomHex(6)}`;
 }
 
 /**

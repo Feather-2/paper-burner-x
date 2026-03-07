@@ -4,6 +4,7 @@ const SPAN_ID_RE = /^[0-9a-f]{16}$/;
 const TRACEPARENT_RE = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/i;
 
 import { createLogger } from '../../shared/utils/logger.js';
+import { nonCryptoRandomHex } from '../../shared/utils/secure-id.js';
 
 const logger = createLogger('contracts/trace-propagator');
 
@@ -78,9 +79,7 @@ function randomHex(bytes) {
     c.getRandomValues(arr);
     return Array.from(arr, (v) => v.toString(16).padStart(2, '0')).join('');
   }
-  let out = '';
-  for (let i = 0; i < target; i++) out += Math.floor(Math.random() * 16).toString(16);
-  return out;
+  return nonCryptoRandomHex(bytes).slice(0, target);
 }
 
 /** @param {string} name @param {string} traceId @param {string | null} parentSpanId @param {boolean} sampled @returns {TraceSpan} */

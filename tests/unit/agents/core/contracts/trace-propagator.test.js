@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   TraceContextPropagator,
   createTracePropagator,
@@ -37,6 +37,35 @@ describe('trace id helpers', () => {
   it('generates trace/span ids with expected sizes', () => {
     expect(generateTraceId()).toMatch(/^[0-9a-f]{32}$/);
     expect(generateSpanId()).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it('uses stable non-crypto fallback when WebCrypto is unavailable', () => {
+    const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+    Object.defineProperty(globalThis, 'crypto', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-01-02T03:04:05.000Z'));
+
+    try {
+      const firstTraceId = generateTraceId();
+      const secondTraceId = generateTraceId();
+      const spanId = generateSpanId();
+
+      expect(firstTraceId).toMatch(/^[0-9a-f]{32}$/);
+      expect(secondTraceId).toMatch(/^[0-9a-f]{32}$/);
+      expect(spanId).toMatch(/^[0-9a-f]{16}$/);
+      expect(secondTraceId).not.toBe(firstTraceId);
+    } finally {
+      vi.useRealTimers();
+      if (originalDescriptor) {
+        Object.defineProperty(globalThis, 'crypto', originalDescriptor);
+      } else {
+        Reflect.deleteProperty(globalThis, 'crypto');
+      }
+    }
   });
 
   it('formats and parses traceparent', () => {
