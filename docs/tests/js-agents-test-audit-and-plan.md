@@ -722,6 +722,53 @@ core 内部未覆盖/陈旧热点：
    - 收紧 `randomInt()` / `normalizeAlgorithm()` 的错误对象和 typed-array 参数契约
 
 3. `js/agents/core/node-compat/shims/http.js`
+
+## 21. 进度更新（2026-03-07 第十一轮，TSC 热点第八批）
+
+继续推进下一批热点：
+
+- `js/agents/core/node-compat/shims/http2.js`
+- `js/agents/core/node-compat/shims/index.js`
+
+结果：
+
+- `npx tsc -p js/agents/tsconfig.json --pretty false`
+  - 诊断从 **212** 降到 **200**
+  - 单轮减少 **12** 条
+
+### 本轮修复内容
+
+1. `js/agents/core/node-compat/shims/http2.js`
+   - 增加 `Http2ShimError` / `UnsupportedServer`
+   - 修复不支持错误对象的 `code` 扩展
+   - 修复 stub server 上 `isStub/supported/listen/close` 的类型声明
+
+2. `js/agents/core/node-compat/shims/index.js`
+   - 收紧 `createBuiltinModules()` 的 config 契约
+   - 为 `modules.fs` / `modules.child_process` 的延迟注入补齐类型
+   - 清理重复/冲突的 JSDoc 参数声明
+
+### 验证
+
+- `tests/unit/agents/core/node-compat/shims/http2.test.js`
+- `tests/unit/agents/core/node-compat/shims/index.test.js`
+- `tests/unit/agents/vfs/operations.test.js`
+- `tests/unit/agents/core/node-compat/shims/crypto.test.js`
+- `tests/unit/agents/core/node-compat/shims/http.test.js`
+
+均已通过。
+
+### 当前状态
+
+- 全量 agents 测试仍然保持 **20,058 / 0 fail**
+- TSC 诊断已降到 **200**
+
+### 下一步
+
+继续进入下一批热点：
+
+1. `js/agents/core/node-compat/shims/http2.js` 关联文件（若新热点出现）
+2. 重新统计剩余热点，优先处理超过 5 条的文件
    - 补齐 `askCallback` 的精确签名
    - 收紧网络策略错误 / abort 错误 / bad port 错误对象类型
 

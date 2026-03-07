@@ -5,8 +5,18 @@
 
 import { EventEmitter } from './events.js';
 
+/**
+ * @typedef {Error & { code?: string }} Http2ShimError
+ * @typedef {EventEmitter & {
+ *   isStub?: boolean,
+ *   supported?: boolean,
+ *   listen?: (...args: unknown[]) => unknown,
+ *   close?: (callback?: Function) => unknown
+ * }} UnsupportedServer
+ */
+
 function createUnsupportedError(api) {
-  const err = new Error(`[http2 shim] ${api} is not supported in browser runtime`);
+  const err = /** @type {Http2ShimError} */ (new Error(`[http2 shim] ${api} is not supported in browser runtime`));
   err.code = 'ERR_HTTP2_UNSUPPORTED';
   return err;
 }
@@ -126,7 +136,7 @@ export class Http2ServerResponse extends EventEmitter {
 }
 
 function createUnsupportedServer(kind) {
-  const server = new EventEmitter();
+  const server = /** @type {UnsupportedServer} */ (new EventEmitter());
   server.isStub = true;
   server.supported = false;
   server.listen = function listen(...args) {

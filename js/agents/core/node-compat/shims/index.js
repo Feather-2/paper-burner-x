@@ -106,11 +106,7 @@ const STUB_MODULES = {
 
 /**
  * 创建完整的内置模块注册表。
- * @param {object} [config]
- * @param {object} [config.vfs] - VFS 实例（fs/child_process 需要）
- * @param {Function} [config.evaluate] - 代码执行器（child_process 需要）
- * @param {Record<string, string>} [config.env] - 环境变量
- * @param {string} [config.cwd] - 工作目录
+ * @param {{ vfs?: object, evaluate?: (code: string, filename: string) => Promise<any>, env?: Record<string, string>, cwd?: string, networkPolicy?: object, violationStore?: { add: (entry: { type: string, detail: string, meta: object }) => void }, protectedPaths?: string[] }} [config]
  * @returns {Record<string, object>}
  */
 export function createBuiltinModules(config = {}) {
@@ -131,6 +127,7 @@ export function createBuiltinModules(config = {}) {
   }
   const httpInstance = createHttpShim(httpShimOptions);
 
+  /** @type {Record<string, object> & { fs?: object, child_process?: object }} */
   const modules = {
     path: pathShim,
     events: { EventEmitter, default: EventEmitter },
@@ -163,6 +160,7 @@ export function createBuiltinModules(config = {}) {
 
   // 动态模块（需要 VFS）
   if (vfs) {
+    /** @type {{ protectedPaths?: string[], onViolation?: (info: { type?: string, op?: string, path?: string }) => void }} */
     const fsOptions = {};
     if (config.protectedPaths) fsOptions.protectedPaths = config.protectedPaths;
     if (violationStore) {
