@@ -244,7 +244,13 @@ describe("IngestStage", () => {
 
     expect(result.metrics.successDocs).toBe(3);
     expect(result.sources).toHaveLength(3);
-    expect(rawTextAdapter.parse).toHaveBeenCalledWith(rawTexts[2]);
+    expect(rawTextAdapter.parse).toHaveBeenCalledWith(
+      rawTexts[2],
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        checkCancelled: expect.any(Function),
+      }),
+    );
     const withNested = result.sources.find((source) => source.metadata?.nested);
     expect(withNested.metadata.nested.level1.level2.value).toBe("deep");
   });

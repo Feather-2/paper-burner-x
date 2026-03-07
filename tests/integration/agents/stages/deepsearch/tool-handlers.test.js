@@ -13,7 +13,7 @@ describe("deepsearch/tools handlers (unit)", () => {
     const created = await handler({ action: "create", text: "Do thing", priority: "high" }, { state, emit });
     expect(created.success).toBe(true);
     expect(created.todo).toBeDefined();
-    expect(created.todo.todoId).toMatch(/^todo_[0-9a-z]+$/);
+    expect(created.todo.todoId).toMatch(/^todo_[0-9a-z]+(?:_[0-9a-f]+)?$/);
     expect(state.todos).toHaveLength(1);
 
     // Update without state.updateTodo (in-place branch)

@@ -345,7 +345,10 @@ describe("LocalMcpProvider", () => {
     });
 
     await provider._fetchContent({ url: "https://example.com" });
-    expect(httpProxy.validateFetchUrl).toHaveBeenCalledWith("https://example.com", { allowPrivateNetwork: true });
+    expect(httpProxy.validateFetchUrl).toHaveBeenCalledWith(
+      "https://example.com",
+      expect.objectContaining({ allowPrivateNetwork: true }),
+    );
   });
 
   it("uses worker fetch when available and skips proxy fallback", async () => {

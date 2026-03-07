@@ -73,14 +73,16 @@ describe("MessageHandling", () => {
     new MessageHandling(loop, { contextConfig, tokenCounter, logger, emit, stageName, actor, maxUserInputs });
 
     expect(MessageManager).toHaveBeenCalledTimes(1);
-    expect(MessageManager).toHaveBeenCalledWith({
+    expect(MessageManager).toHaveBeenCalledWith(expect.objectContaining({
       contextConfig,
       tokenCounter,
       logger,
       emit,
       stageName,
       actor,
-    });
+      onBeforeCompress: expect.any(Function),
+      onAfterCompress: expect.any(Function),
+    }));
 
     expect(Deque).toHaveBeenCalledTimes(1);
     expect(getLimit).toHaveBeenCalledTimes(1);
@@ -107,14 +109,16 @@ describe("MessageHandling", () => {
     new MessageHandling(loop);
 
     expect(MessageManager).toHaveBeenCalledTimes(1);
-    expect(MessageManager).toHaveBeenCalledWith({
+    expect(MessageManager).toHaveBeenCalledWith(expect.objectContaining({
       contextConfig: undefined,
       tokenCounter: undefined,
       logger: undefined,
       emit: undefined,
       stageName: undefined,
       actor: undefined,
-    });
+      onBeforeCompress: expect.any(Function),
+      onAfterCompress: expect.any(Function),
+    }));
     expect(getLimit).toHaveBeenCalledWith("MAX_USER_INPUTS", undefined);
 
     expect(loop._maxUserInputs).toBe(limitSentinel);

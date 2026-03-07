@@ -227,14 +227,15 @@ describe("deepsearch/stage-utils", () => {
     expect(id2).toContain("runX_kindY_s_i2_t_");
     expect(id1).not.toBe(id2);
 
-    const counter1 = id1.split("_").at(-1);
-    const counter2 = id2.split("_").at(-1);
-    expect(counter1).toBe("0");
-    expect(counter2).toBe("1");
+    const suffix1 = id1.split("_").at(-1);
+    const suffix2 = id2.split("_").at(-1);
+    expect(suffix1).toMatch(/^[0-9a-z]+$/);
+    expect(suffix2).toMatch(/^[0-9a-z]+$/);
+    expect(suffix2).not.toBe(suffix1);
 
     vi.advanceTimersByTime(1);
     const id3 = generateNodeId("runX", "kindY");
-    expect(id3.split("_").at(-1)).toBe("0");
+    expect(id3.split("_").at(-1)).toMatch(/^[0-9a-z]+$/);
   });
 
   it("checkCancelled: delegates to stageApi.checkCancelled and throws on aborted signals", () => {

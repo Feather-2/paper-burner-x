@@ -328,6 +328,9 @@ describe('buildPptUsageConfigForModelRouter', () => {
       shadow: ['m_lang'],
       think: ['m_lang', 'm_unlabeled'],
       codesearch: ['m_lang'],
+      cicada_summary: ['m_lang'],
+      summarizer: ['m_lang'],
+      extractor: ['m_lang'],
       vision: ['m_vision'],
     });
   });
@@ -355,6 +358,9 @@ describe('buildPptUsageConfigForModelRouter', () => {
       shadow: [],
       think: ['openai:gpt-4o'],
       codesearch: [],
+      cicada_summary: [],
+      summarizer: [],
+      extractor: [],
       vision: ['openai:gpt-4o'],
     });
   });
@@ -378,6 +384,9 @@ describe('buildPptUsageConfigForModelRouter', () => {
       shadow: ['legacy-lang'],
       think: ['legacy-lang'],
       codesearch: ['legacy-lang'],
+      cicada_summary: ['legacy-lang'],
+      summarizer: ['legacy-lang'],
+      extractor: ['legacy-lang'],
       vision: ['legacy-vision'],
     });
   });

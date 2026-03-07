@@ -287,7 +287,7 @@ describe("SubagentBudgetManager", () => {
     expect(manager.getAvailable()).toBeGreaterThan(0);
   });
 
-  it("reclaims full allocation on release after partial usage", () => {
+  it("reclaims only unused allocation on release after partial usage", () => {
     const manager = createManager({ modeRatios: { isolated: 1 } });
     const alloc = manager.allocate("sub-1", { requestedBudget: 5000 });
     expect(alloc).toMatchObject({ budget: 5000 });
@@ -295,15 +295,15 @@ describe("SubagentBudgetManager", () => {
     manager.recordUsage("sub-1", 3000);
     const released = manager.release("sub-1");
     expect(released).toEqual({ ok: true, refunded: 2000 });
-    expect(manager.getAvailable()).toBe(BASE_DISTRIBUTABLE);
+    expect(manager.getAvailable()).toBe(BASE_DISTRIBUTABLE - 3000);
   });
 
-  it("reclaims full allocation on abort so budget is not permanently occupied", () => {
+  it("reclaims only unused allocation on abort so consumed budget remains accounted", () => {
     const manager = createManager({ modeRatios: { isolated: 1 } });
     manager.allocate("sub-2", { requestedBudget: 4000 });
     manager.recordUsage("sub-2", 1500);
 
     expect(manager.abort("sub-2")).toEqual({ ok: true });
-    expect(manager.getAvailable()).toBe(BASE_DISTRIBUTABLE);
+    expect(manager.getAvailable()).toBe(BASE_DISTRIBUTABLE - 1500);
   });
 });

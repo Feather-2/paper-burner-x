@@ -227,8 +227,9 @@ export class SubagentBudgetManager {
     }
 
     // 计算退还
-    const refunded = Math.max(0, record.allocated - record.used);
-    this._totalAllocated = Math.max(0, this._totalAllocated - record.allocated);
+    const committed = Math.min(record.allocated, Math.max(0, record.used));
+    const refunded = Math.max(0, record.allocated - committed);
+    this._totalAllocated = Math.max(0, this._totalAllocated - refunded);
 
     // 更新状态并保留记录（用于统计/调试）
     record.status = "completed";
@@ -251,8 +252,10 @@ export class SubagentBudgetManager {
       return { ok: false, error: `Allocation for ${subagentId} is not active` };
     }
 
-    // 释放全部未使用的预算
-    this._totalAllocated = Math.max(0, this._totalAllocated - record.allocated);
+    // 仅释放未使用部分；已消耗部分视为已提交预算。
+    const committed = Math.min(record.allocated, Math.max(0, record.used));
+    const refunded = Math.max(0, record.allocated - committed);
+    this._totalAllocated = Math.max(0, this._totalAllocated - refunded);
 
     record.status = "aborted";
     record.endTime = Date.now();

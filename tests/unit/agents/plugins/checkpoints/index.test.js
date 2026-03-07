@@ -43,6 +43,27 @@ const sharedMocks = vi.hoisted(() => {
     }
   };
 
+  const defaultSafeJsonParseDetailed = (value, options) => {
+    if (value === null || value === undefined) {
+      return { ok: false, code: "invalid_json", error: "empty" };
+    }
+    const raw = typeof value === "string" ? value : String(value);
+    const maxChars = options && typeof options === "object" ? options.maxChars : undefined;
+    const limit = maxChars === Infinity
+      ? Infinity
+      : Number.isFinite(maxChars) && maxChars > 0
+        ? Math.floor(maxChars)
+        : 1_000_000;
+    if (limit !== Infinity && raw.length > limit) {
+      return { ok: false, code: "oversized", observedChars: raw.length, maxChars: limit };
+    }
+    const parsed = defaultSafeJsonParse(raw, options);
+    if (parsed === null) {
+      return { ok: false, code: "invalid_json", error: "parse_failed" };
+    }
+    return { ok: true, value: parsed };
+  };
+
   const mockLogger = { info: vi.fn(), warn: vi.fn() };
   const createLogger = vi.fn(() => mockLogger);
 
@@ -50,6 +71,7 @@ const sharedMocks = vi.hoisted(() => {
   const safeInt = vi.fn(defaultSafeInt);
   const isPlainObject = vi.fn(defaultIsPlainObject);
   const safeJsonParse = vi.fn(defaultSafeJsonParse);
+  const safeJsonParseDetailed = vi.fn(defaultSafeJsonParseDetailed);
   const makeSecureTimestampedId = vi.fn(() => `ckpt_${++state.idCounter}`);
 
   return {
@@ -60,11 +82,13 @@ const sharedMocks = vi.hoisted(() => {
     safeInt,
     isPlainObject,
     safeJsonParse,
+    safeJsonParseDetailed,
     makeSecureTimestampedId,
     defaultToNonEmptyString,
     defaultSafeInt,
     defaultIsPlainObject,
     defaultSafeJsonParse,
+    defaultSafeJsonParseDetailed,
   };
 });
 
@@ -102,6 +126,7 @@ const storageMocks = vi.hoisted(() => {
 vi.mock("../../../../../js/agents/shared/index.js", () => ({
   createLogger: sharedMocks.createLogger,
   safeJsonParse: sharedMocks.safeJsonParse,
+  safeJsonParseDetailed: sharedMocks.safeJsonParseDetailed,
   isPlainObject: sharedMocks.isPlainObject,
   safeInt: sharedMocks.safeInt,
   toNonEmptyString: sharedMocks.toNonEmptyString,
@@ -176,12 +201,14 @@ beforeEach(() => {
   sharedMocks.safeInt.mockClear();
   sharedMocks.isPlainObject.mockClear();
   sharedMocks.safeJsonParse.mockClear();
+  sharedMocks.safeJsonParseDetailed.mockClear();
   sharedMocks.makeSecureTimestampedId.mockClear();
 
   sharedMocks.toNonEmptyString.mockImplementation(sharedMocks.defaultToNonEmptyString);
   sharedMocks.safeInt.mockImplementation(sharedMocks.defaultSafeInt);
   sharedMocks.isPlainObject.mockImplementation(sharedMocks.defaultIsPlainObject);
   sharedMocks.safeJsonParse.mockImplementation(sharedMocks.defaultSafeJsonParse);
+  sharedMocks.safeJsonParseDetailed.mockImplementation(sharedMocks.defaultSafeJsonParseDetailed);
   sharedMocks.makeSecureTimestampedId.mockImplementation(() => `ckpt_${++sharedMocks.state.idCounter}`);
 
   storageMocks.constructed.length = 0;
@@ -359,7 +386,7 @@ describe("AgentCheckpointStore", () => {
     const hugeResult = await store.loadCheckpoint({ checkpointId: "huge" });
     expect(hugeResult).toBeNull();
     expect(sharedMocks.mockLogger.warn).toHaveBeenCalledWith(
-      expect.stringContaining("Invalid checkpoint schema"),
+      expect.stringContaining("oversized payload"),
     );
   });
 

@@ -236,7 +236,7 @@ describe("core/sandbox/skill-executor fallback", () => {
     );
 
     expect(result.ok).toBe(false);
-    expect(String(result.error)).toContain("Blocked pattern");
+    expect(String(result.error)).toMatch(/Fallback eval is disabled|Blocked pattern/);
     expect(result.value).toBeNull();
     expect(result.blocked).toBe(true);
     expect(result.mode).toBe("eval");

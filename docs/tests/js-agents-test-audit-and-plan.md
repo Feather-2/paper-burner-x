@@ -394,6 +394,45 @@ core 内部未覆盖/陈旧热点：
 
 这样可以继续用最小 diff 换最多绿灯。
 
+## 13. 进度更新（2026-03-07 第三轮，回到主线）
+
+本轮在完成修复回看审计之后，重新回到主线清理剩余失败测试，结果如下：
+
+- 全量 agents 自动化测试已达到 **20,058 / 0 fail**
+- `npx tsc -p js/agents/tsconfig.json --pretty false` 诊断从 **442** 进一步降到 **440**
+
+本轮主线修复点：
+
+- `js/agents/runtime/core/context/subagent-budget.js`
+  - 修正 release / abort 对“已消耗预算”和“未使用预算”的记账语义
+  - 现在只回收未使用部分，已消耗部分继续占用 distributable budget
+- `tests/unit/agents/plugins/checkpoints/index.test.js`
+  - 补齐 `safeJsonParseDetailed` mock，恢复 checkpoint index / payload 解析链测试
+- `tests/unit/agents/runtime/core/agent-loop-message-handling.test.js`
+  - 同步 `onBeforeCompress` / `onAfterCompress` 新回调契约
+- `tests/integration/agents/stages/codesearch/phases-index.vitest.test.js`
+  - 同步 shared/index 新导出与 mock 映射
+- `tests/unit/agents/llm/ppt-model-bridge.test.js`
+  - 同步新 usage roles：`cicada_summary` / `summarizer` / `extractor`
+- `tests/unit/agents/mcp/local-mcp-provider.test.js`
+  - 放宽为 `objectContaining`，避免对新增默认字段过绑定
+- `tests/integration/agents/stages/deepsearch/helpers.test.js`
+  - 改为验证 node id 后缀合法且连续调用不重复，不再写死内部计数细节
+- `tests/integration/agents/stages/deepsearch/tool-handlers.test.js`
+  - 同步新的 todo id 格式
+- `tests/integration/agents/skills.test.js`
+  - 同步 fallback 安全策略：允许 `Blocked pattern` 或 `Fallback eval is disabled`
+- `tests/unit/agents/ingest/index.test.js`
+  - 同步 rawTextAdapter.parse 的新参数结构（signal / checkCancelled）
+- `tests/unit/agents/runtime/core/context/subagent-budget.test.js`
+  - 统一两套测试对“预算回收语义”的预期，避免和当前实现契约冲突
+
+当前状态：
+
+- **测试主线已全绿**
+- **TSC 仍有 440 条诊断**
+- 下一阶段应重新集中火力处理 TSC 热点，而不是继续改测试
+
 ## 12. 代码质量回看（2026-03-07）
 
 按“不能用 `any`/`unknown` 逃避问题、不能靠降行为换绿灯”的标准，回看了本轮之前提交，确认存在两类需要纠正的修法：
