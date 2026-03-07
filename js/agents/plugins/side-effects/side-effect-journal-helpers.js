@@ -249,17 +249,7 @@ export function validateWalEntry(parsed) {
  * Build a normalized journal entry from raw input.
  * @param {unknown} entry
  * @param {number} seq
- * @returns {{
- *   seq: number,
- *   kind: string,
- *   ts: string,
- *   reversible: boolean,
- *   checkpoint?: Record<string, unknown>,
- *   path?: string,
- *   op?: string,
- *   eventId?: string,
- *   meta?: Record<string, unknown>
- * }}
+ * @returns {SideEffectJournalEntry}
  */
 export function buildJournalEntry(entry, seq) {
   const e = /** @type {Record<string, unknown>} */ (isPlainObject(entry) ? entry : {});
@@ -466,3 +456,21 @@ export function applyRollbackResult(journal, { target, current, rolledBack, fail
     journal.logger?.warn?.(`[SideEffectJournal] Failed to emit rolled_back event: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
+/**
+ * @typedef {object} SideEffectJournalCheckpointRef
+ * @property {string} artifactId
+ * @property {string=} op
+ * @property {string=} type
+ * @property {string=} path
+ *
+ * @typedef {object} SideEffectJournalEntry
+ * @property {number} seq
+ * @property {string} kind
+ * @property {string} ts
+ * @property {boolean} reversible
+ * @property {SideEffectJournalCheckpointRef=} checkpoint
+ * @property {string=} path
+ * @property {string=} op
+ * @property {string=} eventId
+ * @property {Record<string, unknown>=} meta
+ */

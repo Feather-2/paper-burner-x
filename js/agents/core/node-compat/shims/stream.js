@@ -5,6 +5,8 @@
 import { EventEmitter } from './events.js';
 import { Buffer } from './buffer.js';
 
+/** @typedef {Error & { code?: string }} StreamShimError */
+
 export class Stream extends EventEmitter {
   pipe(dest) {
     this.on('data', (chunk) => dest.write(chunk));
@@ -149,7 +151,7 @@ export class Readable extends Stream {
   /** @param {Iterable|AsyncIterable} iterable */
   static from(iterable) {
     const r = new Readable();
-    if (iterable[Symbol.asyncIterator]) {
+    if (iterable && typeof iterable[Symbol.asyncIterator] === 'function') {
       (async () => {
         try {
           for await (const chunk of iterable) r.push(chunk);
@@ -157,7 +159,7 @@ export class Readable extends Stream {
         } catch (err) { r.destroy(err); }
       })();
     } else {
-      for (const chunk of iterable) r.push(chunk);
+      for (const chunk of /** @type {Iterable<any>} */ (iterable)) r.push(chunk);
       r.push(null);
     }
     return r;
@@ -187,7 +189,7 @@ export class Writable extends Stream {
   write(chunk, encoding, cb) {
     if (typeof encoding === 'function') { cb = encoding; encoding = undefined; }
     if (!this.writable || this._ending) {
-      const err = new Error('write after end');
+      const err = /** @type {StreamShimError} */ (new Error('write after end'));
       err.code = 'ERR_STREAM_WRITE_AFTER_END';
       if (typeof cb === 'function') cb(err);
       this.emit('error', err);
@@ -307,7 +309,7 @@ export class Duplex extends Readable {
   write(chunk, encoding, cb) {
     if (typeof encoding === 'function') { cb = encoding; encoding = undefined; }
     if (!this.writable || this._ending) {
-      const err = new Error('write after end');
+      const err = /** @type {StreamShimError} */ (new Error('write after end'));
       err.code = 'ERR_STREAM_WRITE_AFTER_END';
       if (typeof cb === 'function') cb(err);
       this.emit('error', err);
@@ -403,6 +405,30 @@ export class Transform extends Duplex {
     if (typeof opts.flush === 'function') {
       this._flush = opts.flush;
     }
+    this._write = (chunk, encoding, cb) => {
+      let settled = false;
+      const done = (err, output) => {
+        if (settled) return;
+        settled = true;
+        if (err) {
+          cb(err);
+          return;
+        }
+        if (output !== undefined && output !== null) {
+          this.push(output);
+        }
+        cb();
+      };
+
+      try {
+        const maybe = this._transform(chunk, encoding, done);
+        if (maybe && typeof maybe === 'object' && typeof maybe.then === 'function') {
+          maybe.then((output) => done(null, output), done);
+        }
+      } catch (err) {
+        done(err);
+      }
+    };
   }
 
   _transform(chunk, encoding, cb) { cb(null, chunk); }
@@ -425,7 +451,7 @@ export class Transform extends Duplex {
 
     try {
       const maybe = this._transform(chunk, encoding, done);
-      if (maybe && typeof maybe.then === 'function') {
+      if (maybe && typeof maybe === 'object' && typeof maybe.then === 'function') {
         maybe.then((output) => done(null, output), done);
       }
     } catch (err) {

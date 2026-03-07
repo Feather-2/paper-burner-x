@@ -141,6 +141,27 @@ function createHotState() {
  */
 export class HmrClient {
   /**
+   * Event emitter mixin methods are assigned below via Object.assign.
+   * Declared here for checkJs.
+   * @param {string} _event
+   * @param {Function} _listener
+   * @returns {() => void}
+   */
+  on(_event, _listener) { return () => {}; }
+  /**
+   * @param {string} _event
+   * @param {Function} _listener
+   * @returns {void}
+   */
+  off(_event, _listener) {}
+  /**
+   * @param {string} _event
+   * @param {unknown} _payload
+   * @returns {void}
+   */
+  emit(_event, _payload) {}
+
+  /**
    * @param {HmrClientOptions} [options]
    */
   constructor(options = {}) {
@@ -237,7 +258,7 @@ export class HmrClient {
       type = 'update';
     }
 
-    const update = this._createUpdate(type, normalizedPath || String(path || ''), content);
+    const update = /** @type {HmrUpdate} */ (this._createUpdate(type, normalizedPath || String(path || ''), content));
     await this.applyUpdate(update);
     return update;
   }

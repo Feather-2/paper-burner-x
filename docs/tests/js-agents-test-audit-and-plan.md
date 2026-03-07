@@ -769,6 +769,50 @@ core 内部未覆盖/陈旧热点：
 
 1. `js/agents/core/node-compat/shims/http2.js` 关联文件（若新热点出现）
 2. 重新统计剩余热点，优先处理超过 5 条的文件
+
+## 22. 进度更新（2026-03-07 第十二轮，热点再平衡）
+
+本轮先不追求单文件清零，而是对新一轮热点做“高收益预清理”：
+
+- `js/agents/core/node-compat/shims/stream.js`
+- `js/agents/core/webruntime/hmr.js`
+- `js/agents/plugins/side-effects/side-effect-journal-helpers.js`
+
+结果：
+
+- `npx tsc -p js/agents/tsconfig.json --pretty false`
+  - 诊断从 **200** 降到 **194**
+  - 单轮减少 **6** 条
+
+### 本轮修复内容
+
+1. `js/agents/core/node-compat/shims/stream.js`
+   - 为 `Readable.from()` 增加 iterable / asyncIterable 分流收窄
+   - 增加 `StreamShimError`
+   - 对 `write after end` 错误对象补齐 `code`
+   - 开始调整 `Transform` 的 `_write` 结构，减少与 `Duplex` 的签名冲突
+
+2. `js/agents/core/webruntime/hmr.js`
+   - 为 `HmrClient` 显式声明 mixin 注入的 `on/off/emit`
+   - 收紧 `handleFileChange()` 中 update 对象的类型
+
+3. `js/agents/plugins/side-effects/side-effect-journal-helpers.js`
+   - 引入与 journal 主模块对齐的 `SideEffectJournalEntry` / `SideEffectJournalCheckpointRef`
+   - 让 helper 的 `buildJournalEntry()` 返回结构与主模块契约一致
+
+### 当前判断
+
+- 这批文件还没完全清零，但已经把类型基础打平了，后续继续收口成本更低
+- 当前剩余最突出的仍然是：
+  - `js/agents/core/node-compat/shims/stream.js`
+  - `js/agents/core/sandbox/skill-sandbox.js`
+  - `js/agents/core/webruntime/hmr.js`
+  - `js/agents/plugins/side-effects/side-effect-journal.js`
+
+### 当前状态
+
+- 全量 agents 测试仍然保持 **20,058 / 0 fail**
+- TSC 诊断已降到 **194**
    - 补齐 `askCallback` 的精确签名
    - 收紧网络策略错误 / abort 错误 / bad port 错误对象类型
 
