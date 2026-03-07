@@ -433,6 +433,49 @@ core 内部未覆盖/陈旧热点：
 - **TSC 仍有 440 条诊断**
 - 下一阶段应重新集中火力处理 TSC 热点，而不是继续改测试
 
+## 14. 进度更新（2026-03-07 第四轮，TSC 热点首批）
+
+本轮开始真正集中处理 `js/agents` 的 TSC 热点，优先选择 `node-compat` 中“高密度、低行为风险、适合精确类型修复”的文件：
+
+- `js/agents/core/node-compat/shims/fs.js`
+- `js/agents/core/node-compat/shims/net.js`
+
+结果：
+
+- `npx tsc -p js/agents/tsconfig.json --pretty false`
+  - 诊断从 **440** 降到 **351**
+  - 单轮减少 **89** 条
+
+### 本轮修复内容
+
+1. `js/agents/core/node-compat/shims/fs.js`
+   - 引入 `FsError` / `asFsError()` / `createFsError()`
+   - 系统性收敛 `Error.code` / `Error.path` 扩展的类型问题
+   - 修正 `copyFileSync()` 对 `readFileSync()` 返回 `string | Uint8Array` 的分支处理
+   - 保持原有运行时语义，不用 `any` 压过去
+
+2. `js/agents/core/node-compat/shims/net.js`
+   - 引入 `NetError` / `createNetError()`
+   - 系统性收敛 `code / errno / syscall / address / port` 扩展错误对象
+   - 把 `Socket._write` 从与 `Duplex` 冲突的方法定义改成实例属性赋值，保持 Node stream shim 契约一致
+   - 修正 `RangeError.code` 与 `listen(0)` 失败分支的类型问题
+
+### 验证
+
+- `tests/unit/agents/core/node-compat/shims/fs.test.js`
+- `tests/unit/agents/core/node-compat/shims/net.test.js`
+
+均已通过。
+
+### 下一步
+
+继续按同样标准推进下一批 TSC 热点：
+
+1. `js/agents/core/node-compat/npm/tarball.js`
+2. `js/agents/core/node-compat/shims/assert.js`
+3. `js/agents/retrieval/retrieval-router.js`
+4. `js/agents/runtime/core/orchestrator-core.js`
+
 ## 12. 代码质量回看（2026-03-07）
 
 按“不能用 `any`/`unknown` 逃避问题、不能靠降行为换绿灯”的标准，回看了本轮之前提交，确认存在两类需要纠正的修法：

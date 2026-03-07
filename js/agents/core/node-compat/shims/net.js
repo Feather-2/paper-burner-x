@@ -18,6 +18,32 @@ const LISTENERS = new Map();
 let NEXT_SERVER_PORT = MIN_SERVER_PORT;
 let NEXT_CLIENT_PORT = MIN_CLIENT_PORT;
 
+/**
+ * @typedef {Error & {
+ *   code?: string,
+ *   errno?: string,
+ *   syscall?: string,
+ *   address?: string,
+ *   port?: number
+ * }} NetError
+ */
+
+/**
+ * @param {string} message
+ * @param {string} code
+ * @param {{ errno?: string, syscall?: string, address?: string, port?: number }} [details]
+ * @returns {NetError}
+ */
+function createNetError(message, code, details = {}) {
+  const err = /** @type {NetError} */ (new Error(message));
+  err.code = code;
+  if (details.errno) err.errno = details.errno;
+  if (details.syscall) err.syscall = details.syscall;
+  if (details.address) err.address = details.address;
+  if (details.port !== undefined) err.port = details.port;
+  return err;
+}
+
 export const NET_SHIM_CAPABILITIES = Object.freeze({
   transport: 'in-memory',
   supportsRealTcp: false,
@@ -78,23 +104,21 @@ function findListeningServer(host, port) {
 }
 
 function createConnectError(host, port) {
-  const err = new Error(`connect ECONNREFUSED ${host}:${port}`);
-  err.code = 'ECONNREFUSED';
-  err.errno = 'ECONNREFUSED';
-  err.syscall = 'connect';
-  err.address = host;
-  err.port = port;
-  return err;
+  return createNetError(`connect ECONNREFUSED ${host}:${port}`, 'ECONNREFUSED', {
+    errno: 'ECONNREFUSED',
+    syscall: 'connect',
+    address: host,
+    port,
+  });
 }
 
 function createAddrInUseError(host, port) {
-  const err = new Error(`listen EADDRINUSE ${host}:${port}`);
-  err.code = 'EADDRINUSE';
-  err.errno = 'EADDRINUSE';
-  err.syscall = 'listen';
-  err.address = host;
-  err.port = port;
-  return err;
+  return createNetError(`listen EADDRINUSE ${host}:${port}`, 'EADDRINUSE', {
+    errno: 'EADDRINUSE',
+    syscall: 'listen',
+    address: host,
+    port,
+  });
 }
 
 export class Socket extends Duplex {
@@ -115,6 +139,30 @@ export class Socket extends Duplex {
     this._timeoutMs = 0;
     this._timeoutHandle = null;
     this.isVirtualSocket = true;
+    this._write = (chunk, encoding, cb) => {
+      if (this._destroyed || !this.writable) {
+        const err = createNetError('This socket is closed', 'ERR_SOCKET_CLOSED');
+        if (typeof cb === 'function') cb(err);
+        return;
+      }
+
+      const peer = this._peer;
+      if (!peer || peer._destroyed) {
+        const err = createNetError('Socket is not connected', 'ENOTCONN');
+        if (typeof cb === 'function') cb(err);
+        return;
+      }
+
+      const payload = typeof chunk === 'string'
+        ? Buffer.from(chunk, encoding || 'utf8')
+        : (chunk instanceof Uint8Array ? Buffer.from(chunk) : Buffer.from(String(chunk ?? '')));
+
+      this._touchActivity();
+      queueMicrotask(() => {
+        if (!peer._destroyed) peer._receiveData(payload);
+      });
+      if (typeof cb === 'function') cb();
+    };
   }
 
   _clearTimeoutHandle() {
@@ -211,33 +259,6 @@ export class Socket extends Duplex {
     return this;
   }
 
-  _write(chunk, encoding, cb) {
-    if (this._destroyed || !this.writable) {
-      const err = new Error('This socket is closed');
-      err.code = 'ERR_SOCKET_CLOSED';
-      if (typeof cb === 'function') cb(err);
-      return;
-    }
-
-    const peer = this._peer;
-    if (!peer || peer._destroyed) {
-      const err = new Error('Socket is not connected');
-      err.code = 'ENOTCONN';
-      if (typeof cb === 'function') cb(err);
-      return;
-    }
-
-    const payload = typeof chunk === 'string'
-      ? Buffer.from(chunk, encoding || 'utf8')
-      : (chunk instanceof Uint8Array ? Buffer.from(chunk) : Buffer.from(String(chunk ?? '')));
-
-    this._touchActivity();
-    queueMicrotask(() => {
-      if (!peer._destroyed) peer._receiveData(payload);
-    });
-    if (typeof cb === 'function') cb();
-  }
-
   end(chunk, encoding, cb) {
     super.end(chunk, encoding, cb);
     const peer = this._peer;
@@ -256,9 +277,9 @@ export class Socket extends Duplex {
   setTimeout(timeout, cb) {
     const value = Number(timeout);
     if (!Number.isFinite(value) || value < 0) {
-      const err = new RangeError(
+      const err = /** @type {RangeError & { code?: string }} */ (new RangeError(
         `The value of "msecs" is out of range. It must be a non-negative finite number. Received ${timeout}`
-      );
+      ));
       err.code = 'ERR_OUT_OF_RANGE';
       throw err;
     }
@@ -346,8 +367,7 @@ export class Server extends EventEmitter {
     if (port === 0) {
       port = allocateServerPort(host);
       if (port === 0) {
-        const err = new Error('No free ephemeral ports available for net.Server.listen(0)');
-        err.code = 'EADDRNOTAVAIL';
+        const err = createNetError('No free ephemeral ports available for net.Server.listen(0)', 'EADDRNOTAVAIL');
         queueMicrotask(() => {
           this.emit('error', err);
           if (typeof cb === 'function') cb(err);
