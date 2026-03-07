@@ -6,6 +6,11 @@
 
 import { Buffer } from './buffer.js';
 
+/**
+ * @typedef {Error & { code?: string }} CryptoShimError
+ * @typedef {ArrayBufferView} TypedArrayLike
+ */
+
 // ============ Random ============
 
 /**
@@ -44,12 +49,12 @@ export function randomInt(min, max) {
   min = Number(min);
   max = Number(max);
   if (!Number.isInteger(min) || !Number.isInteger(max)) {
-    const err = new TypeError('randomInt() min and max must be integers');
+    const err = /** @type {TypeError & { code?: string }} */ (new TypeError('randomInt() min and max must be integers'));
     err.code = 'ERR_INVALID_ARG_TYPE';
     throw err;
   }
   if (!(max > min)) {
-    const err = new RangeError('randomInt() max must be greater than min');
+    const err = /** @type {RangeError & { code?: string }} */ (new RangeError('randomInt() max must be greater than min'));
     err.code = 'ERR_OUT_OF_RANGE';
     throw err;
   }
@@ -66,8 +71,8 @@ export function randomInt(min, max) {
 }
 
 /**
- * @param {TypedArray} arr
- * @returns {TypedArray}
+ * @param {TypedArrayLike} arr
+ * @returns {TypedArrayLike}
  */
 export function getRandomValues(arr) { return crypto.getRandomValues(arr); }
 
@@ -78,7 +83,7 @@ function normalizeAlgorithm(alg) {
   const normalized = String(alg || '').toLowerCase().replace(/-/g, '');
   const map = { sha1: 'SHA-1', sha256: 'SHA-256', sha384: 'SHA-384', sha512: 'SHA-512' };
   if (normalized === 'md5') {
-    const err = new Error('[crypto shim] MD5 is not supported by WebCrypto digest APIs.');
+    const err = /** @type {CryptoShimError} */ (new Error('[crypto shim] MD5 is not supported by WebCrypto digest APIs.'));
     err.code = 'ERR_CRYPTO_UNSUPPORTED_ALGORITHM';
     throw err;
   }

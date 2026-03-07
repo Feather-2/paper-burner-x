@@ -156,7 +156,7 @@ export const STATUS_CODES = {
 
 /**
  * Create an isolated http shim instance with its own network policy and server state.
- * @param {{ networkPolicy?: { allowedDomains?: string[], deniedDomains?: string[], onViolation?: (info: object) => void }, quotaEnforcer?: import('../quota.js').QuotaEnforcer, observability?: import('../observability.js').ObservabilityStream }} [options]
+ * @param {{ networkPolicy?: { allowedDomains?: string[], deniedDomains?: string[], onViolation?: (info: object) => void }, quotaEnforcer?: import('../quota.js').QuotaEnforcer, observability?: import('../observability.js').ObservabilityStream, askCallback?: ((info: { url: string, hostname: string, method?: string }) => Promise<boolean>) | null }} [options]
  */
 export function createHttpShim(options = {}) {
   let _networkPolicy = null;
@@ -202,9 +202,9 @@ export function createHttpShim(options = {}) {
   function normalizeTimeout(ms) {
     const value = Number(ms);
     if (!Number.isFinite(value) || value < 0) {
-      const err = new RangeError(
+      const err = /** @type {RangeError & { code?: string }} */ (new RangeError(
         `The value of "msecs" is out of range. It must be a non-negative finite number. Received ${ms}`
-      );
+      ));
       err.code = 'ERR_OUT_OF_RANGE';
       throw err;
     }
@@ -212,7 +212,7 @@ export function createHttpShim(options = {}) {
   }
 
   function createAbortError() {
-    const err = new Error('Request aborted');
+    const err = /** @type {Error & { code?: string }} */ (new Error('Request aborted'));
     err.code = 'ABORT_ERR';
     return err;
   }
@@ -230,7 +230,7 @@ export function createHttpShim(options = {}) {
   }
 
   function createAddrInUseError(port) {
-    const err = new Error(`listen EADDRINUSE 0.0.0.0:${port}`);
+    const err = /** @type {Error & { code?: string }} */ (new Error(`listen EADDRINUSE 0.0.0.0:${port}`));
     err.code = 'EADDRINUSE';
     return err;
   }
@@ -337,7 +337,7 @@ export function createHttpShim(options = {}) {
 
       const allowed = await isRequestAllowedAsync(this._url, this._method);
       if (!allowed) {
-        const err = new Error(`Network request blocked by policy: ${this._url}`);
+        const err = /** @type {Error & { code?: string }} */ (new Error(`Network request blocked by policy: ${this._url}`));
         err.code = 'ERR_NETWORK_POLICY';
         if (_networkPolicy?.onViolation) {
           _networkPolicy.onViolation({ type: 'network', url: this._url, method: this._method });
@@ -431,7 +431,7 @@ export function createHttpShim(options = {}) {
 
       let requestedPort = Number.isFinite(Number(port)) ? Number(port) : 0;
       if (requestedPort < 0 || requestedPort > 65535) {
-        const err = new RangeError(`Invalid port: ${port}`);
+        const err = /** @type {RangeError & { code?: string }} */ (new RangeError(`Invalid port: ${port}`));
         err.code = 'ERR_SOCKET_BAD_PORT';
         queueMicrotask(() => {
           this.emit('error', err);

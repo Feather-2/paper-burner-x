@@ -14,6 +14,8 @@ const _locksByVfs = new WeakMap(); // vfs -> Map<path, Promise>
 
 /**
  * @typedef {{ signal?: AbortSignal }} AbortOptions
+ * @typedef {{ abort?: (reason?: unknown) => unknown, cancel?: (reason?: unknown) => unknown }} CancellableLike
+ * @typedef {Error & { code?: string, cancelAttempted?: boolean }} VfsAbortError
  */
 
 function getLockMapForVfs(vfs) {
@@ -47,10 +49,10 @@ async function waitFor(promise, { signal } = {}) {
 
   const cancellable =
     maybeThenable && typeof maybeThenable === "object"
-      ? typeof maybeThenable.abort === "function"
-        ? /** @type {(reason?: any) => any} */ (maybeThenable.abort).bind(maybeThenable)
-        : typeof maybeThenable.cancel === "function"
-          ? /** @type {(reason?: any) => any} */ (maybeThenable.cancel).bind(maybeThenable)
+      ? typeof /** @type {CancellableLike} */ (maybeThenable).abort === "function"
+        ? /** @type {(reason?: unknown) => unknown} */ (/** @type {CancellableLike} */ (maybeThenable).abort).bind(maybeThenable)
+        : typeof /** @type {CancellableLike} */ (maybeThenable).cancel === "function"
+          ? /** @type {(reason?: unknown) => unknown} */ (/** @type {CancellableLike} */ (maybeThenable).cancel).bind(maybeThenable)
           : null
       : null;
 
@@ -65,7 +67,7 @@ async function waitFor(promise, { signal } = {}) {
           // ignore cancellation hook failure
         }
       }
-      const error = new Error(reason);
+      const error = /** @type {VfsAbortError} */ (new Error(reason));
       error.code = "ERR_VFS_WAIT_ABORTED";
       error.cancelAttempted = Boolean(cancellable);
       reject(error);

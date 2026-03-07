@@ -696,6 +696,57 @@ core 内部未覆盖/陈旧热点：
 1. `js/agents/vfs/operations.js`
 2. `js/agents/core/node-compat/shims/crypto.js`
 3. `js/agents/core/node-compat/shims/http.js`
+
+## 20. 进度更新（2026-03-07 第十轮，TSC 热点第七批）
+
+继续推进下一批热点：
+
+- `js/agents/vfs/operations.js`
+- `js/agents/core/node-compat/shims/crypto.js`
+- `js/agents/core/node-compat/shims/http.js`
+
+结果：
+
+- `npx tsc -p js/agents/tsconfig.json --pretty false`
+  - 诊断从 **229** 降到 **212**
+  - 单轮减少 **17** 条
+
+### 本轮修复内容
+
+1. `js/agents/vfs/operations.js`
+   - 增加 `CancellableLike` / `VfsAbortError`
+   - 修复 `abort/cancel` 探测与取消错误对象扩展
+
+2. `js/agents/core/node-compat/shims/crypto.js`
+   - 增加 `CryptoShimError` / `TypedArrayLike`
+   - 收紧 `randomInt()` / `normalizeAlgorithm()` 的错误对象和 typed-array 参数契约
+
+3. `js/agents/core/node-compat/shims/http.js`
+   - 补齐 `askCallback` 的精确签名
+   - 收紧网络策略错误 / abort 错误 / bad port 错误对象类型
+
+### 验证
+
+- `tests/unit/agents/vfs/operations.test.js`
+- `tests/unit/agents/core/node-compat/shims/crypto.test.js`
+- `tests/unit/agents/core/node-compat/shims/http.test.js`
+- `tests/unit/agents/core/node-compat/shims/https.test.js`
+- `tests/integration/agents/runtime.test.js`
+
+均已通过。
+
+### 当前状态
+
+- 全量 agents 测试仍然保持 **20,058 / 0 fail**
+- TSC 诊断已降到 **212**
+
+### 下一步
+
+继续进入下一批热点：
+
+1. `js/agents/core/node-compat/shims/http2.js`
+2. `js/agents/core/node-compat/shims/index.js`
+3. `js/agents/runtime/core/errors/error-taxonomy.js` 相关联文件（如有新增暴露）
    - 增加 `LoggerPluginContext`
    - 显式声明 `_loggerUnsubs` 生命周期字段
    - 修正 `registerEventListeners()` 返回类型
