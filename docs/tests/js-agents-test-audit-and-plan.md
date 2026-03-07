@@ -427,6 +427,25 @@ core 内部未覆盖/陈旧热点：
 
 都已回归通过。
 
+继续回看后，还确认了一处“不是类型逃逸、但属于实现被拍平”的问题：
+
+- `js/agents/plugins/telemetry/trace-context.js`
+  - 曾经把无 WebCrypto 时的 fallback 从内部 PRNG + counter 退化成了 `Math.random()`
+  - 这会降低 fallback 语义精度，也让实现为了兼容旧断言而变弱
+
+该问题已重做：
+
+- 恢复为 `xorshift32 + counter + 时间扰动` 的明确非加密 fallback
+- 测试不再写死“必须走 Math.random”，而是验证：
+  - trace/span id 的 hex 长度合法
+  - fallback 连续调用不会简单重复
+  - warning 中的 mode 明确为 `xorshift32-counter`
+
+验证通过：
+
+- `tests/unit/agents/plugins/telemetry/trace-context.test.js`
+- `tests/integration/agents/runtime/telemetry.test.js`
+
 ---
 
 > 备注：本文件记录的是 **修复前基线**。后续每完成一个阶段，应更新本文件中的失败数、覆盖空洞和目标比例偏差。

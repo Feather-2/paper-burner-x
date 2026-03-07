@@ -254,16 +254,19 @@ describe('runtime/telemetry TraceContext', () => {
     restoreConsole();
   });
 
-  it('generateTraceId/generateSpanId fall back to Math.random when crypto is missing', () => {
+  it('generateTraceId/generateSpanId fall back to deterministic non-crypto ids when crypto is missing', () => {
     const restoreConsole = silenceConsole();
 
     const restoreCrypto = overrideGlobalProperty('crypto', undefined);
-    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
+    const traceId = generateTraceId();
+    const spanId = generateSpanId();
+    const traceId2 = generateTraceId();
 
-    expect(generateTraceId()).toBe('00'.repeat(16));
-    expect(generateSpanId()).toBe('00'.repeat(8));
+    expect(traceId).toMatch(/^[0-9a-f]{32}$/);
+    expect(spanId).toMatch(/^[0-9a-f]{16}$/);
+    expect(traceId2).toMatch(/^[0-9a-f]{32}$/);
+    expect(traceId2).not.toBe(traceId);
 
-    randomSpy.mockRestore();
     restoreCrypto();
     restoreConsole();
   });
