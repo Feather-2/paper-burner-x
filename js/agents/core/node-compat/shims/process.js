@@ -5,6 +5,8 @@
 
 import { EventEmitter } from './events.js';
 
+/** @typedef {Error & { code?: string }} ProcessShimError */
+
 /**
  * @param {boolean} isWritable
  * @param {Function} [writeImpl]
@@ -52,12 +54,12 @@ export function createProcess(options = {}) {
       throw new TypeError('The "directory" argument must be of type string.');
     }
     if (input.length === 0) {
-      const e = new Error('ENOENT: no such file or directory, chdir');
+      const e = /** @type {ProcessShimError} */ (new Error('ENOENT: no such file or directory, chdir'));
       e.code = 'ENOENT';
       throw e;
     }
     if (input.includes('\u0000')) {
-      const e = new Error('EINVAL: path must not contain null bytes');
+      const e = /** @type {ProcessShimError} */ (new Error('EINVAL: path must not contain null bytes'));
       e.code = 'EINVAL';
       throw e;
     }
@@ -81,7 +83,7 @@ export function createProcess(options = {}) {
   try {
     cwd = normalizeCwd(options.cwd || '/', '/');
     if (pathExists && !pathExists(cwd)) {
-      const e = new Error(`ENOENT: no such file or directory, chdir '${cwd}'`);
+      const e = /** @type {ProcessShimError} */ (new Error(`ENOENT: no such file or directory, chdir '${cwd}'`));
       e.code = 'ENOENT';
       throw e;
     }
@@ -104,7 +106,7 @@ export function createProcess(options = {}) {
     chdir(dir) {
       const next = normalizeCwd(dir, cwd);
       if (pathExists && !pathExists(next)) {
-        const e = new Error(`ENOENT: no such file or directory, chdir '${next}'`);
+        const e = /** @type {ProcessShimError} */ (new Error(`ENOENT: no such file or directory, chdir '${next}'`));
         e.code = 'ENOENT';
         throw e;
       }

@@ -919,3 +919,101 @@ core 内部未覆盖/陈旧热点：
 ---
 
 > 备注：本文件记录的是 **修复前基线**。后续每完成一个阶段，应更新本文件中的失败数、覆盖空洞和目标比例偏差。
+
+## 13. 第 12 轮，继续清理 TSC 热点（2026-03-08）
+
+本轮继续按“只补契约、不拍平逻辑”的原则清理 `js/agents` 热点，覆盖了 node-compat、sandbox、runtime、skills、codesearch、design 多个子模块。
+
+### 本轮处理文件
+
+- `js/agents/core/node-compat/shims/https.js`
+- `js/agents/core/node-compat/shims/process.js`
+- `js/agents/core/node-compat/shims/stream.js`
+- `js/agents/core/node-compat/shims/worker_threads.js`
+- `js/agents/core/node-compat/sandbox-tool.js`
+- `js/agents/core/sandbox/iframe-eval-bridge.js`
+- `js/agents/core/sandbox/iframe-sandbox.js`
+- `js/agents/core/sandbox/skill-sandbox.js`
+- `js/agents/core/webruntime/hmr.js`
+- `js/agents/mcp/resource-manager.js`
+- `js/agents/plugins/compression/cicada.js`
+- `js/agents/plugins/side-effects/side-effect-journal.js`
+- `js/agents/retrieval/bm25.js`
+- `js/agents/runtime/core/orchestrator-helpers.js`
+- `js/agents/runtime/core/persisted-output.js`
+- `js/agents/runtime/core/tool-registry.js`
+- `js/agents/runtime/core/vfs-proxy.js`
+- `js/agents/runtime/core/worker-factory.js`
+- `js/agents/runtime/core/worker-rpc.js`
+- `js/agents/runtime/hooks/hook-registry.js`
+- `js/agents/sdk/http/request-handler.js`
+- `js/agents/skills/manager.js`
+- `js/agents/stages/codesearch/indexing/symbol-indexer.js`
+- `js/agents/stages/deepsearch/phases/planning-phase-helpers.js`
+- `js/agents/stages/design/edit-agent-loop.js`
+- `js/agents/stages/design/model.js`
+- `js/agents/stages/design/subagents/slide-agent.js`
+
+### 这轮做了什么
+
+- 把多处“实现已返回扩展字段，但 JSDoc 仍写窄”的结果对象补成显式契约：
+  - sandbox fallback 结果
+  - sandbox tool handler 结果
+  - persisted-output scoped config / cleanup 选项
+- 把多个“局部私有字段动态挂载”补成文件内精确别名，而不是放大成 `any`：
+  - `compression/cicada` 的 `_cicadaUnsub`
+  - worker 相关 `_workerId`
+  - hooks 的 `_execCount` / `_lastExecTime`
+- 修正多处 `checkJs` 无法自动收窄的联合分支：
+  - `validated.ok === false`
+  - `parsed.ok === false`
+  - `pathInfo.ok === false`
+- 修正多个 Node/Web shim 的错误对象扩展类型：
+  - `process` / `worker_threads` / request timeout
+- 修复多个过时或错误的函数契约：
+  - `slide-agent` 中 async realpath 返回值注释错误
+  - `planning-phase-helpers` / `edit-agent-loop` 缺失 options 字段
+  - `worker-factory` 返回的并非单一 DOM Worker，而是受管的跨运行时 worker
+  - `bm25` stopwords 改为 `ReadonlySet` 契约，避免把只读集合硬写成可变 `Set`
+
+### 当前结果
+
+- `npx tsc -p js/agents/tsconfig.json --pretty false`
+  - 诊断数从 **146** 降到 **85**
+  - 单轮再减少 **61** 条
+
+### 验证
+
+已通过的窄回归：
+
+- `tests/unit/agents/runtime/core/worker-factory.test.js`
+- `tests/unit/agents/runtime/core/worker-rpc.test.js`
+- `tests/unit/agents/sdk/http/request-handler.test.js`
+- `tests/unit/agents/mcp/resource-manager.test.js`
+- `tests/unit/agents/stages/deepsearch/phases/planning-phase-helpers.test.js`
+- `tests/unit/agents/stages/deepsearch/phases/planning-phase-system-prompt.test.js`
+- `tests/unit/agents/skills/manager.test.js`
+- `tests/integration/agents/skills.test.js`
+- `tests/integration/agents/skills-manager.test.js`
+- `tests/unit/agents/stages/codesearch/indexing/symbol-indexer.test.js`
+- `tests/integration/agents/stages/codesearch.test.js`
+- `tests/unit/agents/stages/design/edit-agent-loop.test.js`
+- `tests/integration/agents/stages/design/redos-safety.test.js`
+- `tests/unit/agents/core/node-compat/shims/process.test.js`
+- `tests/unit/agents/core/node-compat/shims/stream.test.js`
+- `tests/unit/agents/core/node-compat/shims/https.test.js`
+- `tests/unit/agents/core/sandbox/iframe-eval-bridge.test.js`
+- `tests/unit/agents/core/webruntime/hmr.test.js`
+- `tests/unit/agents/plugins/side-effects/side-effect-journal.test.js`
+- `js/agents/core/sandbox/__tests__/skill-sandbox-resource-limits.test.js`
+- `js/agents/core/sandbox/__tests__/skill-sandbox-unified-comlink.test.js`
+
+### 下一步
+
+继续优先扫剩余 `2 diagnostics` 的文件，按最小 diff 批量收口：
+
+1. `js/agents/core/node-compat/npm/resolver.js`
+2. `js/agents/core/node-compat/shims/{buffer,dns,module,util,ws,zlib}.js`
+3. `js/agents/core/sandbox/{create-sandbox,skill-executor-core,skill-validation,system/seatbelt}.js`
+4. `js/agents/runtime/core/{agent-coordination,python-adapter,scheduler,vfs-proxy-client}.js`
+5. `js/agents/plugins/telemetry/runstore-telemetry.js`

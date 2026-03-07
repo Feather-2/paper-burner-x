@@ -514,11 +514,11 @@ export class HmrClient {
    * @returns {Promise<void>}
    */
   async _triggerFullReload(update) {
-    const reloadUpdate = {
+    const reloadUpdate = /** @type {HmrUpdate} */ ({
       ...update,
       type: 'full-reload',
       timestamp: typeof update.timestamp === 'number' ? update.timestamp : Date.now(),
-    };
+    });
 
     this._moduleCache.clear();
     this.emit('hmr:full-reload', reloadUpdate);

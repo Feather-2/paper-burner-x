@@ -33,6 +33,11 @@ function toFiniteNumber(value, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/**
+ * @typedef {{ scope?: string }} PersistedOutputScopeOptions
+ * @typedef {PersistedOutputScopeOptions & { keepRecent?: number }} PersistedOutputCleanupOptions
+ */
+
 function resolveConfig(scope = "default") {
   const key = normalizeScope(scope);
   if (key === "default") return { ..._defaultConfig };
@@ -71,7 +76,7 @@ function getByteLength(content) {
 /**
  * Configure persisted output settings
  * @param {{ outputThreshold?: number, previewSize?: number, keepRecentOutputs?: number }} config
- * @param {{ scope?: string }=} [options]
+ * @param {PersistedOutputScopeOptions} [options]
  */
 export function configurePersistedOutput(config, options = {}) {
   const input = config && typeof config === "object" ? config : {};
@@ -91,7 +96,7 @@ export function configurePersistedOutput(config, options = {}) {
 
 /**
  * Get current config
- * @param {{ scope?: string }=} [options]
+ * @param {PersistedOutputScopeOptions} [options]
  * @returns {{ outputThreshold: number, previewSize: number, keepRecentOutputs: number }}
  */
 export function getPersistedOutputConfig(options = {}) {
@@ -100,7 +105,7 @@ export function getPersistedOutputConfig(options = {}) {
 
 /**
  * Reset to defaults
- * @param {{ scope?: string }=} [options]
+ * @param {PersistedOutputScopeOptions} [options]
  */
 export function resetPersistedOutputConfig(options = {}) {
   const scope = normalizeScope(options.scope);
@@ -179,7 +184,7 @@ ${PERSISTED_OUTPUT_END}`;
 /**
  * 清理旧的持久化输出，保留最近 N 个
  * @param {Array<{role?: string, content?: any}>} messages
- * @param {number} [keepRecent] - 保留数量
+ * @param {number | PersistedOutputCleanupOptions} [keepRecent] - 保留数量
  * @returns {Array} - 清理后的消息数组
  */
 export function cleanOldPersistedOutputs(messages, keepRecent = undefined) {
@@ -187,10 +192,8 @@ export function cleanOldPersistedOutputs(messages, keepRecent = undefined) {
   const scopeConfig = resolveConfig(
     typeof keepRecent === "object" && keepRecent !== null ? keepRecent.scope : undefined
   );
-  const keepRecentValue =
-    typeof keepRecent === "object" && keepRecent !== null
-      ? keepRecent.keepRecent
-      : keepRecent;
+  const keepRecentOptions = typeof keepRecent === "object" && keepRecent !== null ? keepRecent : null;
+  const keepRecentValue = keepRecentOptions ? keepRecentOptions.keepRecent : keepRecent;
   const keepRecentResolved = toFiniteNumber(keepRecentValue, scopeConfig.keepRecentOutputs);
 
   const persistedIndices = [];
@@ -207,7 +210,8 @@ export function cleanOldPersistedOutputs(messages, keepRecent = undefined) {
 
   if (persistedIndices.length <= keepRecentResolved) return messages;
 
-  const toClean = new Set(persistedIndices.slice(0, -keepRecentResolved));
+  const retainCount = Math.max(0, Math.floor(keepRecentResolved));
+  const toClean = new Set(persistedIndices.slice(0, -retainCount));
 
   return messages.map((msg, idx) => {
     if (!toClean.has(idx)) return msg;

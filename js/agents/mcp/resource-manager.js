@@ -862,9 +862,10 @@ export class McpResourceManager {
     let cb = callback;
 
     if (isPlainObject(options)) {
-      providerId = options.providerId;
-      uri = options.uri;
-      if (typeof options.callback === "function") cb = options.callback;
+      const normalizedOptions = /** @type {{ providerId?: string, uri?: string, callback?: McpResourceUpdateCallback }} */ (options);
+      providerId = normalizedOptions.providerId;
+      uri = normalizedOptions.uri;
+      if (typeof normalizedOptions.callback === "function") cb = normalizedOptions.callback;
     } else if (typeof options === "string") {
       // Positional form: (providerId, uri, callback) or (uri, callback)
       providerId = options;

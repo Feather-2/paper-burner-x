@@ -150,7 +150,20 @@ function makeTimeoutError(timeoutMs) {
   return err;
 }
 
+/**
+ * @typedef {object} HardTimeoutHooks
+ * @property {(info: { timeoutMs: number, abortRequested?: boolean }) => void} [onTimeout]
+ * @property {(info: { reason?: unknown, timeout?: boolean, timeoutMs?: number }) => void} [onAbort]
+ * @property {(info: { settled?: "fulfilled" | "rejected", timeoutMs?: number }) => void} [onLateSettle]
+ */
+
 // Hard timeout: aborts via AbortController and rejects with exit-code-like 124 on timeout.
+/**
+ * @param {(signal: AbortSignal) => Promise<unknown>} promiseFactory
+ * @param {number} timeoutMs
+ * @param {AbortSignal | null | undefined} signal
+ * @param {HardTimeoutHooks} [hooks]
+ */
 function withHardTimeout(promiseFactory, timeoutMs, signal, { onTimeout, onAbort, onLateSettle } = {}) {
   const ms = Number.isFinite(timeoutMs) ? Math.max(0, Math.floor(timeoutMs)) : 0;
   const controller = new AbortController();

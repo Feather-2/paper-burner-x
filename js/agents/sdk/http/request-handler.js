@@ -21,6 +21,8 @@ const DEFAULT_TIMEOUT_MS = 120_000; // 2 min
 const DEFAULT_SESSION_ID_PREFIX = 'session';
 const ERR_REQUEST_TIMEOUT = 'ERR_REQUEST_TIMEOUT';
 
+/** @typedef {Error & { code?: string, mayContinue?: boolean }} RequestTimeoutError */
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -152,9 +154,9 @@ function createRequestTimeout(timeoutMs) {
   const ac = new AbortController();
   let timer = null;
 
-  const timeoutPromise = new Promise((_, reject) => {
+  const timeoutPromise = /** @type {Promise<never>} */ (new Promise((_, reject) => {
     timer = setTimeout(() => {
-      const err = new Error('Request timeout');
+      const err = /** @type {RequestTimeoutError} */ (new Error('Request timeout'));
       err.code = ERR_REQUEST_TIMEOUT;
       err.mayContinue = true;
       try {
@@ -164,7 +166,7 @@ function createRequestTimeout(timeoutMs) {
       }
       reject(err);
     }, timeoutMs);
-  });
+  }));
 
   return {
     signal: ac.signal,
@@ -222,7 +224,7 @@ export function createRequestHandler(agentFactory, options = {}) {
 
     // --- Parse and validate body ---
     const parsed = parseBody(req.body, maxBodyBytes);
-    if (!parsed.ok) {
+    if (parsed.ok === false) {
       return jsonError(400, parsed.error);
     }
     const { prompt, session_id, timeout_ms } = parsed.data;

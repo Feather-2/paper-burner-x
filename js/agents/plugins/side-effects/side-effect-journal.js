@@ -96,10 +96,10 @@ import {
 /**
  * Interface for Logger-like objects (DI contract).
  * @typedef {object} LoggerLike
- * @property {(msg: string) => void} [warn] - Log warning message
- * @property {(msg: string) => void} [info] - Log info message
- * @property {(msg: string) => void} [debug] - Log debug message
- * @property {(msg: string) => void} [error] - Log error message
+ * @property {(msg: string, meta?: unknown) => void} [warn] - Log warning message
+ * @property {(msg: string, meta?: unknown) => void} [info] - Log info message
+ * @property {(msg: string, meta?: unknown) => void} [debug] - Log debug message
+ * @property {(msg: string, meta?: unknown) => void} [error] - Log error message
  */
 
 /**

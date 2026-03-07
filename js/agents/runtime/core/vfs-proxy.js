@@ -289,7 +289,7 @@ export class VfsProxy {
     const opRaw = String(msg.op || '');
     const op = normalizeProxyOp(opRaw);
     const pathInfo = normalizeServerPath(msg.path, this.absolutePathMode);
-    if (!pathInfo.ok) {
+    if (pathInfo.ok === false) {
       writeSharedResponse(sharedBuffer, { ok: false, error: pathInfo.error });
       this._reportProtocolError(pathInfo.error, {
         code: pathInfo.code,

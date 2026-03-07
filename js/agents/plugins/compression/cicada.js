@@ -7,6 +7,7 @@
 import { createPlugin } from '../../core/plugin.js';
 
 /** @typedef {import('../../core/plugin.js').PluginContext} PluginContext */
+/** @typedef {PluginContext & { _cicadaUnsub?: (() => void) | null }} CicadaPluginContext */
 
 /**
  * 压缩消息格式
@@ -71,7 +72,7 @@ export default createPlugin({
   },
 
   /**
-   * @param {PluginContext} ctx
+   * @param {CicadaPluginContext} ctx
    * @returns {Promise<void>}
    */
   async install(ctx) {
@@ -162,7 +163,7 @@ export default createPlugin({
   },
 
   /**
-   * @param {PluginContext} ctx
+   * @param {CicadaPluginContext} ctx
    * @returns {Promise<void>}
    */
   async uninstall(ctx) {

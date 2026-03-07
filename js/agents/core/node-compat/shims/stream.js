@@ -7,6 +7,15 @@ import { Buffer } from './buffer.js';
 
 /** @typedef {Error & { code?: string }} StreamShimError */
 
+/**
+ * @param {unknown} value
+ * @returns {value is PromiseLike<unknown>}
+ */
+function isPromiseLike(value) {
+  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) return false;
+  return typeof /** @type {PromiseLike<unknown>} */ (value).then === 'function';
+}
+
 export class Stream extends EventEmitter {
   pipe(dest) {
     this.on('data', (chunk) => dest.write(chunk));
@@ -421,8 +430,8 @@ export class Transform extends Duplex {
       };
 
       try {
-        const maybe = this._transform(chunk, encoding, done);
-        if (maybe && typeof maybe === 'object' && typeof maybe.then === 'function') {
+        const maybe = /** @type {unknown} */ (this._transform(chunk, encoding, done));
+        if (isPromiseLike(maybe)) {
           maybe.then((output) => done(null, output), done);
         }
       } catch (err) {
@@ -433,31 +442,6 @@ export class Transform extends Duplex {
 
   _transform(chunk, encoding, cb) { cb(null, chunk); }
   _flush(cb) { cb(); }
-
-  _write(chunk, encoding, cb) {
-    let settled = false;
-    const done = (err, output) => {
-      if (settled) return;
-      settled = true;
-      if (err) {
-        cb(err);
-        return;
-      }
-      if (output !== undefined && output !== null) {
-        this.push(output);
-      }
-      cb();
-    };
-
-    try {
-      const maybe = this._transform(chunk, encoding, done);
-      if (maybe && typeof maybe === 'object' && typeof maybe.then === 'function') {
-        maybe.then((output) => done(null, output), done);
-      }
-    } catch (err) {
-      done(err);
-    }
-  }
 }
 
 export class PassThrough extends Transform {}

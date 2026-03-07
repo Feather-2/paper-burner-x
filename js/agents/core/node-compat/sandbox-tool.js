@@ -79,10 +79,28 @@ export const SANDBOX_TOOL_DEFINITION = {
 };
 
 /**
+ * @typedef {object} SandboxToolHandlerResult
+ * @property {boolean} success
+ * @property {string} output
+ * @property {string=} error
+ * @property {boolean=} unavailable
+ * @property {string=} runtime
+ * @property {unknown=} result
+ *
+ * @typedef {object} SandboxToolInstance
+ * @property {typeof SANDBOX_TOOL_DEFINITION} definition
+ * @property {(args: { code: string, filename?: string, install?: string[] }) => Promise<SandboxToolHandlerResult>} handler
+ * @property {string} description
+ * @property {typeof SANDBOX_TOOL_DEFINITION.parameters} parameters
+ * @property {boolean} available
+ * @property {string=} unavailableReason
+ */
+
+/**
  * Create a sandbox-backed execute_code tool for ToolExecutor.
  *
  * @param {SandboxToolConfig} [config]
- * @returns {{ definition: typeof SANDBOX_TOOL_DEFINITION, handler: Function }}
+ * @returns {SandboxToolInstance}
  */
 export function createSandboxTool(config = {}) {
   const {
@@ -169,7 +187,7 @@ export function createSandboxTool(config = {}) {
 
   /**
    * @param {{ code: string, filename?: string, install?: string[] }} args
-   * @returns {Promise<{ success: boolean, output: string, error?: string }>}
+   * @returns {Promise<SandboxToolHandlerResult>}
    */
   async function handler(args) {
     const { code, filename = 'main.js', install } = args;

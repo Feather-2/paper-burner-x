@@ -109,6 +109,7 @@ export function isDegradationMatrixLike(value) {
 /** @typedef {{ heapUsed?: number, heapTotal?: number, rss?: number }} MemoryUsageLike */
 /** @typedef {{ memoryUsage?: () => MemoryUsageLike }} ProcessWithMemoryUsage */
 /** @typedef {{ usedJSHeapSize?: number, jsHeapSizeLimit?: number }} PerformanceMemoryLike */
+/** @typedef {{ runId?: string, mode?: string, scenario?: string, constraints?: Record<string, unknown> }} BuildRunContextInput */
 
 export function defaultMemoryUsageRatio() {
   try {
@@ -130,7 +131,11 @@ export function defaultMemoryUsageRatio() {
   return 0;
 }
 
-export function buildRunContext({ runId, mode, scenario, constraints } = {}) {
+/**
+ * @param {BuildRunContextInput} [input]
+ */
+export function buildRunContext(input = {}) {
+  const { runId, mode, scenario, constraints } = input;
   return {
     schemaVersion: "0.1",
     runId: toNonEmptyString(runId) || `run_${Date.now()}`,

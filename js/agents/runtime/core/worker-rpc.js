@@ -94,6 +94,7 @@ function normalizeRemoteError(raw) {
  * @property {(event: string, listener: (...args: any[]) => void) => void} [removeListener]
  * @property {((ev: any) => void) | null | undefined} [onmessage]
  * @property {((ev: any) => void) | null | undefined} [onerror]
+ * @property {string} [_workerId]
  */
 
 export class WorkerRpcClient {
@@ -277,8 +278,8 @@ export class WorkerRpcClient {
       return;
     }
 
-    if (!validated?.ok) {
-      const error = typeof validated?.error === "string" ? validated.error : "Invalid RPC response";
+    if (validated?.ok === false) {
+      const error = typeof validated.error === "string" ? validated.error : "Invalid RPC response";
       logger.warn("Invalid RPC response", { error, id: data.id });
       return;
     }

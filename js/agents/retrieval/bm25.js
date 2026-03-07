@@ -248,8 +248,8 @@ function pushCjkBigrams(token, out, { maxBigrams = 64 } = {}) {
 
 /**
  * Normalize stopwords input to a Set or null (disabled).
- * @param {Set<string>|string[]|false|null|undefined} input
- * @returns {Set<string>|null} - null means no stopword filtering
+ * @param {ReadonlySet<string>|string[]|false|null|undefined} input
+ * @returns {ReadonlySet<string>|null} - null means no stopword filtering
  */
 function normalizeStopwords(input) {
   if (input === false) return null;
@@ -259,8 +259,16 @@ function normalizeStopwords(input) {
 }
 
 /**
+ * @param {ReadonlySet<string>|false|null|TokenizeOptions} value
+ * @returns {value is TokenizeOptions}
+ */
+function isTokenizeOptions(value) {
+  return value !== null && value !== false && typeof value === "object" && !(value instanceof Set) && !Array.isArray(value);
+}
+
+/**
  * @typedef {Object} TokenizeOptions
- * @property {Set<string>|null} [stopwords] - Stopwords set, null to disable
+ * @property {ReadonlySet<string>|null} [stopwords] - Stopwords set, null to disable
  * @property {(t:string)=>boolean} [singleCharFilter] - Filter for single-char tokens
  * @property {number} [maxBigrams] - Max bigrams for CJK tokens
  * @property {object} [context] - Context for segmenter caching
@@ -269,7 +277,7 @@ function normalizeStopwords(input) {
 /**
  * Tokenize text with configurable options.
  * @param {string} text
- * @param {Set<string>|null|TokenizeOptions} [optionsOrStopwords=DEFAULT_STOPWORDS]
+ * @param {ReadonlySet<string>|false|null|TokenizeOptions} [optionsOrStopwords=DEFAULT_STOPWORDS]
  * @returns {string[]}
  */
 function tokenize(text, optionsOrStopwords = DEFAULT_STOPWORDS) {
@@ -283,7 +291,7 @@ function tokenize(text, optionsOrStopwords = DEFAULT_STOPWORDS) {
     stopwords = null;
   } else if (optionsOrStopwords instanceof Set) {
     stopwords = optionsOrStopwords;
-  } else if (typeof optionsOrStopwords === "object" && !Array.isArray(optionsOrStopwords)) {
+  } else if (isTokenizeOptions(optionsOrStopwords)) {
     stopwords = optionsOrStopwords.stopwords !== undefined ? optionsOrStopwords.stopwords : DEFAULT_STOPWORDS;
     if (typeof optionsOrStopwords.singleCharFilter === "function") {
       singleCharFilter = optionsOrStopwords.singleCharFilter;

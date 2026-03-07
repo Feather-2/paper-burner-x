@@ -13,6 +13,31 @@ function toNonEmptyString(value) {
 }
 
 /**
+ * @typedef {{
+ *   emit?: (eventName: string, payload: unknown) => void
+ * }} WorkerLifecycleEventBus
+ */
+
+/**
+ * @typedef {{
+ *   eventBus?: WorkerLifecycleEventBus,
+ *   workerId?: string,
+ *   runId?: string,
+ *   workerData?: unknown,
+ *   type?: "classic" | "module",
+ *   workerIdFactory?: (meta: { scriptUrl: string, runId?: string }) => string | null | undefined
+ * }} CreateWorkerOptions
+ */
+
+/**
+ * @typedef {{
+ *   postMessage?: (message: unknown, transferList?: Transferable[]) => void,
+ *   terminate?: () => void | Promise<number>,
+ *   _workerId?: string
+ * }} ManagedWorker
+ */
+
+/**
  * 检测 Worker 是否可用
  * @returns {boolean} 是否支持 Worker
  */
@@ -26,7 +51,7 @@ export function isWorkerSupported() {
 
 /**
  * @param {string|URL} scriptUrl
- * @param {object} options
+ * @param {CreateWorkerOptions} [options]
  * @returns {string}
  */
 function resolveWorkerId(scriptUrl, options = {}) {
@@ -51,11 +76,8 @@ function resolveWorkerId(scriptUrl, options = {}) {
 /**
  * 创建 Worker
  * @param {string|URL} scriptUrl - Worker 脚本路径
- * @param {object} options - Worker 选项
- * @param {object} [options.eventBus] - EventBus for lifecycle events
- * @param {string} [options.workerId] - Worker ID for correlation
- * @param {string} [options.runId] - Run ID for correlation
- * @returns {Promise<Worker>}
+ * @param {CreateWorkerOptions} [options] - Worker 选项
+ * @returns {Promise<ManagedWorker>}
  */
 export async function createWorker(scriptUrl, options = {}) {
   const workerId = resolveWorkerId(scriptUrl, options);
@@ -72,21 +94,22 @@ export async function createWorker(scriptUrl, options = {}) {
   }
 
   try {
+    /** @type {ManagedWorker} */
     let worker;
     if (isNodeLike()) {
       // @ts-ignore
       const { Worker } = await import(/* @vite-ignore */ "node:worker_threads");
-      worker = new Worker(scriptUrl, {
+      worker = /** @type {ManagedWorker} */ (new Worker(scriptUrl, {
         ...options,
         // Node.js Worker Threads 特定选项
         workerData: options.workerData,
-      });
+      }));
     } else {
       // Browser Web Worker
-      worker = new globalThis.Worker(scriptUrl, {
+      worker = /** @type {ManagedWorker} */ (new globalThis.Worker(scriptUrl, {
         type: options.type || "module",
         ...options,
-      });
+      }));
     }
 
     // P0: 附加 workerId 到 worker 实例
@@ -127,10 +150,8 @@ export async function createWorker(scriptUrl, options = {}) {
 
 /**
  * 终止 Worker
- * @param {Worker} worker
- * @param {object} [options]
- * @param {object} [options.eventBus] - EventBus for lifecycle events
- * @param {string} [options.runId] - Run ID for correlation
+ * @param {ManagedWorker | null | undefined} worker
+ * @param {{ eventBus?: WorkerLifecycleEventBus, runId?: string }} [options]
  * @returns {Promise<void>}
  */
 export async function terminateWorker(worker, options = {}) {

@@ -49,12 +49,18 @@ export { normalizeToolResult };
  * @typedef {"warn" | "skip" | "fail"} HookFailurePolicy
  * @typedef {"sync" | "background"} ToolPersistMode
  * @typedef {"warn" | "fail"} ToolPersistFailurePolicy
+ * @typedef {{ id: string }} ToolHistoryCheckpointRef
+ * @typedef {{
+ *   list(runId: string): Promise<ToolHistoryCheckpointRef[]>,
+ *   save(checkpointId: string, snapshot: unknown): Promise<unknown>,
+ *   delete?: (checkpointId: string) => Promise<unknown>
+ * }} ToolRegistryArchive
  *
  * @typedef {object} ToolRegistryOptions
  * @property {ToolDefinitions | null} [tools]
  * @property {{ before?: BeforeHook[], after?: AfterHook[] } | null} [hooks]
  * @property {LoggerLike | null} [logger]
- * @property {import('../../core/archive/archive-core.js').Archive | null} [archive]
+ * @property {ToolRegistryArchive | null} [archive]
  * @property {string} [runId]
  * @property {(meta: { prefix: string, timestamp: number }) => string | null | undefined} [runIdFactory]
  * @property {EmitFn | null} [emit] - Injected emit function (falls back to resolveEmit at call time)
@@ -309,7 +315,7 @@ export class ToolRegistry {
     this._hooks = { before: [], after: [] };
     this._logger = options.logger || null;
 
-    /** @type {import('../../core/archive/archive-core.js').Archive | null} */
+    /** @type {ToolRegistryArchive | null} */
     this._archive = options.archive || null;
     /** @type {string} */
     this._runId = resolveRunId(options);
@@ -545,7 +551,7 @@ export class ToolRegistry {
     }
 
     const persisted = await persistPromise;
-    if (!persisted.ok) {
+    if (persisted.ok === false) {
       if (this._persistFailurePolicy === "fail") {
         return {
           ok: false,

@@ -61,6 +61,8 @@ import { EditModeAgentLoop } from "./edit-mode/edit-loop.js";
  * @property {any} [aiApiService]
  * @property {any} [modelRouter]
  * @property {any} [editTools]
+ * @property {(meta: { prefix: string, timestamp: number, context?: object }) => string | null | undefined} [runIdFactory]
+ * @property {(meta: { runId: string, normalizedRunId: string, sequence: number, timestamp: number }) => string | null | undefined} [versionIdFactory]
  */
 
 /**
@@ -112,7 +114,7 @@ export class EditAgentLoop extends BaseAgentLoop {
     // 黑板
     this._blackboard = new DesignBlackboard({ runId: options.runId });
     this._baseRunId = toNonEmptyString(options.runId) || "";
-    this._runIdFactory = typeof options.runIdFactory === "function" ? options.runIdFactory : null;
+    this._editRunIdFactory = typeof options.runIdFactory === "function" ? options.runIdFactory : null;
     this._versionIdFactory = typeof options.versionIdFactory === "function" ? options.versionIdFactory : null;
     this._versionSeq = 0;
 
@@ -228,10 +230,10 @@ export class EditAgentLoop extends BaseAgentLoop {
     const contextRunId = toNonEmptyString(context?.runId);
     if (contextRunId) return contextRunId;
 
-    if (this._runIdFactory) {
+    if (this._editRunIdFactory) {
       try {
         const custom = toNonEmptyString(
-          this._runIdFactory({ prefix: "edit", timestamp: Date.now(), context })
+          this._editRunIdFactory({ prefix: "edit", timestamp: Date.now(), context })
         );
         if (custom) return custom;
       } catch {

@@ -8,6 +8,8 @@
 
 import { EventEmitter } from './events.js';
 
+/** @typedef {Error & { code?: string }} WorkerThreadsShimError */
+
 export const isMainThread = true;
 export const parentPort = null;
 export const workerData = null;
@@ -17,7 +19,7 @@ const BROADCAST_REGISTRY = new Map();
 const ENV_DATA = new Map();
 
 function createUnsupportedError(api) {
-  const err = new Error(`${api} is not supported in browser worker_threads shim`);
+  const err = /** @type {WorkerThreadsShimError} */ (new Error(`${api} is not supported in browser worker_threads shim`));
   err.code = 'ERR_WORKER_THREADS_UNSUPPORTED';
   return err;
 }
@@ -75,7 +77,7 @@ export class MessagePort extends EventEmitter {
 
   postMessage(value, _transferList) {
     if (this._closed) {
-      const err = new Error('Cannot postMessage on a closed MessagePort');
+      const err = /** @type {WorkerThreadsShimError} */ (new Error('Cannot postMessage on a closed MessagePort'));
       err.code = 'ERR_INVALID_STATE';
       throw err;
     }
@@ -137,7 +139,7 @@ export class BroadcastChannel extends EventEmitter {
 
   postMessage(message) {
     if (this._closed) {
-      const err = new Error('Cannot postMessage on a closed BroadcastChannel');
+      const err = /** @type {WorkerThreadsShimError} */ (new Error('Cannot postMessage on a closed BroadcastChannel'));
       err.code = 'ERR_INVALID_STATE';
       throw err;
     }

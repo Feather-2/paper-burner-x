@@ -20,6 +20,37 @@ const NODE_WORKER_RESOURCE_LIMITS_MIN_VERSION = Object.freeze({
 });
 
 /**
+ * @typedef {'eval' | 'worker' | 'node-worker'} FallbackExecutionMode
+ */
+
+/**
+ * @typedef {object} FallbackExecutionResult
+ * @property {boolean} ok
+ * @property {any} value
+ * @property {string=} error
+ * @property {number} durationMs
+ * @property {boolean=} blocked
+ * @property {boolean=} timedOut
+ * @property {FallbackExecutionMode=} mode
+ * @property {string[]=} blockedGlobals
+ */
+
+/**
+ * @typedef {object} NodeWorkerExecutePayload
+ * @property {string=} code
+ * @property {string=} filename
+ * @property {any} [state]
+ * @property {any} [globals]
+ * @property {number=} timeout
+ */
+
+/**
+ * @typedef {object} NodeWorkerFallbackBridge
+ * @property {(payload: NodeWorkerExecutePayload) => Promise<any>} execute
+ * @property {() => void} terminate
+ */
+
+/**
  * @param {string} version
  * @returns {{ major: number, minor: number, patch: number } | null}
  */
@@ -119,7 +150,7 @@ export async function ensurePool(state, logger) {
  * @param {(name: string, payload: any) => void} exec.onEmit
  * @param {Function} isFallbackAllowed
  * @param {Object} logger
- * @returns {Promise<{ ok: boolean, value: any, error?: string, durationMs: number }>}
+ * @returns {Promise<FallbackExecutionResult>}
  */
 export async function executeFallback(skill, context, exec, isFallbackAllowed, logger) {
   const skillId = skill?.id || skill?.metadata?.name;
@@ -212,7 +243,7 @@ export async function executeFallback(skill, context, exec, isFallbackAllowed, l
  * @param {URL} workerUrl
  * @param {Object} options
  * @param {Object} logger
- * @returns {Promise<{ ok: boolean, value: any, error?: string, durationMs: number }>}
+ * @returns {Promise<FallbackExecutionResult>}
  */
 export async function executeFallbackInWorker(workerUrl, options, logger) {
   const startTime = Date.now();
@@ -337,7 +368,7 @@ export async function executeFallbackInWorker(workerUrl, options, logger) {
  * Node.js worker_threads 执行
  * @param {Object} options
  * @param {Object} logger
- * @returns {Promise<{ ok: boolean, value: any, error?: string, durationMs: number }>}
+ * @returns {Promise<FallbackExecutionResult>}
  */
 export async function executeFallbackInNodeWorker(options, logger) {
   const startTime = Date.now();
@@ -391,7 +422,7 @@ export async function executeFallbackInNodeWorker(options, logger) {
   // Match existing host timeout behavior: worker timeout + 1s grace period.
   const rpcTimeout = timeoutMs > 0 ? timeoutMs + 1000 : 2_147_483_647;
 
-  const worker = wrapNodeWorker(nodeWorker, {
+  const worker = /** @type {NodeWorkerFallbackBridge} */ (wrapNodeWorker(nodeWorker, {
     timeout: rpcTimeout,
     methodTimeouts: { execute: rpcTimeout },
     onConsole(method, args) {
@@ -416,7 +447,7 @@ export async function executeFallbackInNodeWorker(options, logger) {
         options?.onLog?.(level, Array.isArray(logArgs) ? logArgs : []);
       }
     },
-  });
+  }));
 
   try {
     const value = await worker.execute({
@@ -458,7 +489,7 @@ export async function executeFallbackInNodeWorker(options, logger) {
  * 主线程 fallback 执行
  * @param {Object} options
  * @param {Object} logger
- * @returns {Promise<{ ok: boolean, value: any, error?: string, durationMs: number }>}
+ * @returns {Promise<FallbackExecutionResult>}
  */
 export async function executeFallbackInMainThread(options, logger) {
   const startTime = Date.now();

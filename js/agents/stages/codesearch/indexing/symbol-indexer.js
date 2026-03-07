@@ -21,6 +21,9 @@ import { LRUCache } from "../../../shared/index.js";
  * @property {(eventName:string, payload:any)=>void=} emit
  * @property {{get:(key:string)=>Promise<any>, set:(key:string, value:any)=>Promise<void>}=} archive
  * @property {string=} runId
+ *
+ * @typedef {{ rev: number, results: any[] }} SymbolIndexerQueryCacheEntry
+ * @typedef {{ _cache?: Map<any, SymbolIndexerQueryCacheEntry | { value?: SymbolIndexerQueryCacheEntry }>, map?: Map<any, SymbolIndexerQueryCacheEntry | { value?: SymbolIndexerQueryCacheEntry }> }} QueryCacheCompat
  */
 function extname(path) {
   const p = toNonEmptyString(path);
@@ -519,6 +522,7 @@ export class SymbolIndexer {
     if (!this._queryCache) return [];
 
     if (typeof this._queryCache.keys === "function" && typeof this._queryCache.get === "function") {
+      /** @type {Array<[string, any]>} */
       const out = [];
       for (const key of this._queryCache.keys()) {
         const value = this._queryCache.get(key);
@@ -527,16 +531,20 @@ export class SymbolIndexer {
       return out;
     }
 
-    const rawMap = this._queryCache._cache instanceof Map
-      ? this._queryCache._cache
-      : this._queryCache.map instanceof Map
-        ? this._queryCache.map
+    const queryCacheCompat = /** @type {QueryCacheCompat} */ (this._queryCache);
+    const rawMap = queryCacheCompat._cache instanceof Map
+      ? queryCacheCompat._cache
+      : queryCacheCompat.map instanceof Map
+        ? queryCacheCompat.map
         : null;
     if (!rawMap) return [];
 
+    /** @type {Array<[string, any]>} */
     const out = [];
     for (const [key, value] of rawMap.entries()) {
-      const normalized = isPlainObject(value) && Object.prototype.hasOwnProperty.call(value, "value") ? value.value : value;
+      const normalized = isPlainObject(value) && Object.prototype.hasOwnProperty.call(value, "value")
+        ? /** @type {{ value?: SymbolIndexerQueryCacheEntry }} */ (value).value
+        : value;
       out.push([String(key), normalized]);
     }
     return out;

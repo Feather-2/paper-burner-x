@@ -14,6 +14,14 @@ const logger = {
  * @typedef {import("./model.js").SkillMetadata} SkillMetadata
  * @typedef {{ metadata: SkillMetadata, body: (string | null), supportFiles?: Record<string, string> }} SkillContent
  * @typedef {{ skills: SkillContent[], errors: Array<{ path: string, message: string }> }} SkillLoadOutcome
+ * @typedef {{ id: string }} SkillsCacheCheckpointRef
+ * @typedef {{ outcome?: SkillLoadOutcome, ts?: number }} SkillsCacheSnapshot
+ * @typedef {{
+ *   list(runId: string): Promise<SkillsCacheCheckpointRef[]>,
+ *   load(checkpointId: string): Promise<SkillsCacheSnapshot | null>,
+ *   save(checkpointId: string, snapshot: { schemaVersion: number, outcome: SkillLoadOutcome, ts: number, metadata?: { cacheKey?: string } }): Promise<unknown>,
+ *   delete(checkpointId: string): Promise<unknown>
+ * }} SkillsCacheArchive
  */
 
 /**
@@ -43,7 +51,7 @@ export class SkillsManager {
     this.cacheTtlMs = Number.isFinite(Number(options.cacheTtlMs)) ? Math.max(0, Math.floor(Number(options.cacheTtlMs))) : 5 * 60_000;
     this.cacheMaxEntries = Number.isFinite(Number(options.cacheMaxEntries)) ? Math.max(1, Math.floor(Number(options.cacheMaxEntries))) : 32;
 
-    /** @type {import("../core/archive/archive-core.js").Archive | null} */
+    /** @type {SkillsCacheArchive | null} */
     this._archive = options.archive || null;
 
     /** @type {string} */

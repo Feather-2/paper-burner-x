@@ -65,6 +65,8 @@ const VALID_AUTHORITIES = new Set(["system", "config", "agent"]);
  * @property {HookGate=} gate - Soft constraint gate (async)
  * @property {boolean=} protected - If true, Agent cannot disable/remove this hook
  * @property {'system'|'config'|'agent'=} authority - Who can control this hook (default 'agent')
+ * @property {number=} _execCount - Internal execution counter
+ * @property {number=} _lastExecTime - Internal last execution timestamp
  */
 
 function normalizeToolPatterns(input) {
@@ -573,11 +575,12 @@ export function hook(registry, eventName, optsOrHandler, handler) {
   }
   // Level 0: hook(reg, event, fn)
   if (typeof optsOrHandler === "function") {
-    return registry.register(eventName, { type: "command", handler: optsOrHandler });
+    return registry.register(eventName, /** @type {HookDefinition} */ ({ type: "command", handler: /** @type {HookDefinition["handler"]} */ (optsOrHandler) }));
   }
   // Level 1: hook(reg, event, { match, ... }, fn)
   if (isPlainObject(optsOrHandler) && typeof handler === "function") {
-    const def = { type: "command", handler };
+    /** @type {HookDefinition} */
+    const def = { type: "command", handler: /** @type {HookDefinition["handler"]} */ (handler) };
     if (optsOrHandler.match) def.tools = Array.isArray(optsOrHandler.match) ? optsOrHandler.match : [optsOrHandler.match];
     if (optsOrHandler.when) def.when = optsOrHandler.when;
     if (optsOrHandler.times) def.lifecycle = { maxExecutions: optsOrHandler.times };
@@ -587,4 +590,3 @@ export function hook(registry, eventName, optsOrHandler, handler) {
   // Level 2: hook(reg, event) → builder
   return new HookBuilder(eventName, registry);
 }
-

@@ -170,7 +170,9 @@ export function createIframeSandbox(config = {}) {
   /** @type {ReturnType<typeof setTimeout> | null} */
   let readyTimer = null;
   let isReady = false;
+  /** @type {(value?: void | PromiseLike<void>) => void} */
   let readyResolve = () => {};
+  /** @type {(reason?: unknown) => void} */
   let readyReject = () => {};
   const readyPromise = new Promise((resolve, reject) => {
     readyResolve = resolve;

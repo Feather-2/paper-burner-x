@@ -39,10 +39,10 @@ export {
 
 /**
  * Create an HTTPS client request
- * @param {string | URL | import('./http.js').RequestOptions} urlOrOptions
- * @param {import('./http.js').RequestOptions | ((res: IncomingMessage) => void)} [optionsOrCallback]
- * @param {(res: IncomingMessage) => void} [callback]
- * @returns {ClientRequest}
+ * @param {Parameters<typeof _createClientRequest>[0]} urlOrOptions
+ * @param {Parameters<typeof _createClientRequest>[1]} [optionsOrCallback]
+ * @param {Parameters<typeof _createClientRequest>[2]} [callback]
+ * @returns {ReturnType<typeof _createClientRequest>}
  */
 export function request(urlOrOptions, optionsOrCallback, callback) {
   return _createClientRequest(urlOrOptions, optionsOrCallback, callback, 'https');
@@ -50,10 +50,10 @@ export function request(urlOrOptions, optionsOrCallback, callback) {
 
 /**
  * Make an HTTPS GET request
- * @param {string | URL | import('./http.js').RequestOptions} urlOrOptions
- * @param {import('./http.js').RequestOptions | ((res: IncomingMessage) => void)} [optionsOrCallback]
- * @param {(res: IncomingMessage) => void} [callback]
- * @returns {ClientRequest}
+ * @param {Parameters<typeof _createClientRequest>[0]} urlOrOptions
+ * @param {Parameters<typeof _createClientRequest>[1]} [optionsOrCallback]
+ * @param {Parameters<typeof _createClientRequest>[2]} [callback]
+ * @returns {ReturnType<typeof _createClientRequest>}
  */
 export function get(urlOrOptions, optionsOrCallback, callback) {
   const req = _createClientRequest(urlOrOptions, optionsOrCallback, callback, 'https');

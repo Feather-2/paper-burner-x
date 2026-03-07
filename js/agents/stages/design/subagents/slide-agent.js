@@ -51,8 +51,8 @@ async function ensureNodeModules() {
 
 /**
  * 校验路径是否在受控根目录内
- * @param {string} filePath
- * @returns {boolean}
+ * @param {string} path
+ * @returns {Promise<string>}
  */
 async function resolveRealPathSafe(path) {
   if (!pathModule) return "";
@@ -65,6 +65,11 @@ async function resolveRealPathSafe(path) {
   }
 }
 
+/**
+ * @param {string} filePath
+ * @param {string | null} linkedFilesRootDir
+ * @returns {Promise<boolean>}
+ */
 async function isPathAllowed(filePath, linkedFilesRootDir) {
   if (!linkedFilesRootDir || !pathModule) return false;
   const rootResolved = pathModule.resolve(linkedFilesRootDir);

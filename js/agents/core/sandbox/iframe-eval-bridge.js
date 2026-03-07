@@ -37,7 +37,7 @@ const MSG_READY = "iframe-eval:ready";
 
 /**
  * Build the guest script that runs inside the sandboxed iframe.
- * @param {{ sessionId: string }} [options]
+ * @param {{ sessionId?: string }} [options]
  * @returns {string}
  */
 function buildEvalGuestScript(options = {}) {
@@ -212,7 +212,9 @@ export function createIframeEvalBridge(config = {}) {
 
   /** @type {ReturnType<typeof setTimeout> | null} */
   let readyTimer = null;
+  /** @type {(value?: void | PromiseLike<void>) => void} */
   let readyResolve = () => {};
+  /** @type {(reason?: unknown) => void} */
   let readyReject = () => {};
   let isReady = false;
   const readyPromise = new Promise((resolve, reject) => {

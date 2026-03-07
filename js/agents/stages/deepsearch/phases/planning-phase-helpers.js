@@ -33,6 +33,37 @@ export const MAX_TASK_GOAL_LEN = 200;
 export const MAX_MODE_DESC_LEN = 80;
 export const DEFAULT_MODEL_TIMEOUT_MS = 120_000;
 
+/**
+ * @typedef {object} SystemPromptConfigLike
+ * @property {{ cacheKey?: string, failOnUnresolved?: boolean }=} prompts
+ * @property {string=} promptCacheKey
+ * @property {boolean=} promptFailOnUnresolved
+ * @property {boolean=} promptFailFast
+ * @property {{ [mode: string]: { minWords?: number } | undefined }=} report
+ */
+
+/**
+ * @typedef {object} SystemPromptOptions
+ * @property {string=} skillsPrompt
+ * @property {SystemPromptConfigLike | null=} config
+ * @property {string=} mode
+ * @property {string=} cacheKey
+ */
+
+/**
+ * @typedef {object} SkillsCatalogContextLike
+ * @property {{
+ *   cwd?: string,
+ *   getCwd?: (() => string),
+ *   allowProcessCwdForSkills?: boolean,
+ *   skills?: { allowProcessCwdFallback?: boolean }
+ * }=} stageApi
+ * @property {{
+ *   state?: { userConfig?: { skills?: { allowProcessCwdFallback?: boolean } } },
+ *   globalConfig?: { skills?: { allowProcessCwdFallback?: boolean } }
+ * }=} agent
+ */
+
 export function sanitizePromptInput(value, fallback, maxLen) {
   if (typeof value !== "string") return fallback;
   const trimmed = value.replace(/\s+/g, " ").trim();
@@ -116,6 +147,10 @@ let _systemSubagentsPromptTemplate = null;
 const _modePromptTemplates = new Map(); // mode -> template
 let _systemPromptWarnedUnresolved = false;
 
+/**
+ * @param {SystemPromptOptions} [options]
+ * @returns {string}
+ */
 function resolvePromptCacheKey({ cacheKey, config } = {}) {
   const direct = typeof cacheKey === "string" ? cacheKey.trim() : "";
   if (direct) return direct;
@@ -143,6 +178,10 @@ export function resetSystemPromptCache() {
   resetSystemPromptCacheInternal();
 }
 
+/**
+ * @param {SystemPromptOptions} [options]
+ * @returns {Promise<string>}
+ */
 export async function getSystemPrompt({ skillsPrompt = "", config = null, mode = "wider", cacheKey } = {}) {
   const resolvedCacheKey = resolvePromptCacheKey({ cacheKey, config });
   if (resolvedCacheKey !== _activePromptCacheKey) {
@@ -268,6 +307,10 @@ export async function buildSkillsPrompt({ agent, stageApi, SkillsManager }) {
   return "";
 }
 
+/**
+ * @param {SkillsCatalogContextLike} [options]
+ * @returns {{ cwd: string, source: string }}
+ */
 export function resolveSkillsCatalogCwd({ agent, stageApi } = {}) {
   const fromStageApiCwd = sanitizePromptInput(stageApi?.cwd, "", 4096);
   if (fromStageApiCwd) return { cwd: fromStageApiCwd, source: "stageApi.cwd" };
@@ -290,6 +333,11 @@ export function resolveSkillsCatalogCwd({ agent, stageApi } = {}) {
   return { cwd: "", source: "unavailable" };
 }
 
+/**
+ * @param {SkillsCatalogContextLike["agent"]} agent
+ * @param {SkillsCatalogContextLike["stageApi"]} stageApi
+ * @returns {boolean}
+ */
 function resolveProcessCwdFallbackPolicy(agent, stageApi) {
   if (stageApi?.allowProcessCwdForSkills === true) return true;
   if (stageApi?.allowProcessCwdForSkills === false) return false;
