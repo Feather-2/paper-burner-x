@@ -233,6 +233,7 @@ export class VectorIndex {
    * @returns {{dim:number|null, maxItems:number, rows:Array<[string, {vec:number[], meta:any}]>}}
    */
   serialize() {
+    /** @type {Array<[string, {vec:number[], meta:any}]>} */
     const rows = [];
     for (const [id, row] of this._rows.entries()) {
       rows.push([id, { vec: Array.from(row.vec), meta: row.meta }]);

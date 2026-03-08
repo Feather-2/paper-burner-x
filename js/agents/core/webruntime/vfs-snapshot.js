@@ -59,8 +59,9 @@ function assertSnapshotEntries(input, label) {
  * @returns {string}
  */
 export function uint8ToBase64(bytes) {
-  if (typeof Buffer === 'function') {
-    return Buffer.from(bytes).toString('base64');
+  const bufferCtor = /** @type {{ from?: (input: Uint8Array) => { toString: (encoding: string) => string } }} */ (globalThis.Buffer);
+  if (bufferCtor && typeof bufferCtor.from === 'function') {
+    return bufferCtor.from(bytes).toString('base64');
   }
 
   // Avoid O(n^2) string concatenation for large payloads.

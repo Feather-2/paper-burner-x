@@ -94,7 +94,7 @@ export default createPlugin({
 
         // Issue #3: 保存 timeout 句柄并在任务完成后清理
         let timeoutHandle;
-        const timeoutError = new Error('Task timeout');
+        const timeoutError = /** @type {Error & { code?: string }} */ (new Error('Task timeout'));
         timeoutError.code = 'SCHEDULER_TASK_TIMEOUT';
         const timeoutPromise = new Promise((_, reject) => {
           timeoutHandle = setTimeout(() => {

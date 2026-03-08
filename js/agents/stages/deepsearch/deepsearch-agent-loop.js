@@ -53,6 +53,7 @@ export const AgentStatus = Object.freeze({
 });
 
 /** @typedef {"idle"|"running"|"completed"|"failed"} DeepSearchAgentStatus */
+/** @typedef {(messages: any[], options?: any) => Promise<any>} DeepSearchCallModel */
 
 /**
  * @typedef {object} EventBusBackpressureState
@@ -468,7 +469,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
    * @param {any} stageApi
    * @param {any} traceContext
    * @param {any} SkillsManager
-   * @returns {Promise<{callModel: Function, responseHandler: any}>}
+   * @returns {Promise<{callModel: DeepSearchCallModel, responseHandler: any}>}
    */
   async _bootstrapModel(stageApi, traceContext, SkillsManager) {
     const modeConfig = getModeConfig(this.mode, this.globalConfig);
@@ -506,7 +507,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       maxRetries: 5,
     });
 
-    return { callModel, responseHandler };
+    return { callModel: /** @type {DeepSearchCallModel} */ (callModel), responseHandler };
   }
 
   /**

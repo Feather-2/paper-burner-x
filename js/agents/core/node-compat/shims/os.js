@@ -5,7 +5,8 @@
 const FALLBACK_TOTAL_MEM = 512 * 1024 * 1024;
 
 function estimateTotalMem() {
-  const deviceMemory = Number(globalThis.navigator?.deviceMemory);
+  const navigatorWithMemory = /** @type {Navigator & { deviceMemory?: number }} */ (globalThis.navigator);
+  const deviceMemory = Number(navigatorWithMemory?.deviceMemory);
   if (Number.isFinite(deviceMemory) && deviceMemory > 0) {
     return Math.floor(deviceMemory * 1024 * 1024 * 1024);
   }

@@ -84,7 +84,8 @@ export function clearParseCache(scope = null) {
         return;
     }
 
-    const entries = parseSectionsCache._map;
+    const entries = /** @type {{ _map?: Map<any, any>, _cache?: Map<any, any> }} */ (parseSectionsCache)._map
+      || /** @type {{ _map?: Map<any, any>, _cache?: Map<any, any> }} */ (parseSectionsCache)._cache;
     if (!(entries instanceof Map)) {
         parseSectionsCache.clear();
         return;

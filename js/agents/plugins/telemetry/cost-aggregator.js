@@ -30,7 +30,7 @@ function str(v) {
 
 export class CostAggregator {
   /**
-   * @param {{ eventBus?: { on?: Function, emit?: Function }, archive?: import("../../core/archive/archive-core.js").Archive, runId?: string, onPersistenceError?: (payload: { phase: "hydrate" | "persist", error: Error, runId: string }) => void }} [options]
+   * @param {{ eventBus?: { on?: Function, emit?: Function }, archive?: { list: (runId: string) => Promise<Array<{ id: string }>>, load: (checkpointId: string) => Promise<any>, save?: Function }, runId?: string, onPersistenceError?: (payload: { phase: "hydrate" | "persist", error: Error, runId: string }) => void }} [options]
    */
   constructor(options = {}) {
     /** @type {Map<string, object>} */

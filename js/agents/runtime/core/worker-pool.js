@@ -34,6 +34,21 @@ export const DEFAULT_MAX_WORKERS = getDefaultMaxWorkers();
 export const DEFAULT_IDLE_TIMEOUT_MS = 30000; // 30s
 export const DEFAULT_TASK_TIMEOUT_MS = 60000; // 60s
 
+/**
+ * @typedef {{
+ *   postMessage: (message: any, transferList?: Transferable[]) => void,
+ *   terminate?: (() => unknown) | undefined,
+ *   addEventListener?: (type: string, listener: (ev: any) => void, options?: any) => void,
+ *   removeEventListener?: (type: string, listener: (ev: any) => void, options?: any) => void,
+ *   on?: (event: string, listener: (...args: any[]) => void) => void,
+ *   off?: (event: string, listener: (...args: any[]) => void) => void,
+ *   removeListener?: (event: string, listener: (...args: any[]) => void) => void,
+ *   onmessage?: ((ev: any) => void) | null,
+ *   onerror?: ((ev: any) => void) | null,
+ *   _workerId?: string
+ * }} WorkerPoolWorkerLike
+ */
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Task Priority
 // ─────────────────────────────────────────────────────────────────────────────
@@ -53,7 +68,7 @@ export class WorkerPool {
    * @param {object} [options]
    * @param {string|URL} [options.scriptUrl] - Worker script path (used with WorkerFactory default)
    * @param {object} [options.workerOptions] - Worker options (used with WorkerFactory default)
-   * @param {() => Worker | Promise<Worker>} [options.createWorker] - Factory function to create Worker (overrides WorkerFactory default)
+   * @param {() => WorkerPoolWorkerLike | Promise<WorkerPoolWorkerLike>} [options.createWorker] - Factory function to create Worker (overrides WorkerFactory default)
    * @param {number} [options.maxWorkers=4]
    * @param {number} [options.idleTimeoutMs=30000]
    * @param {number} [options.taskTimeoutMs=60000]
@@ -70,9 +85,13 @@ export class WorkerPool {
       throw new Error("WorkerPool requires createWorker function or scriptUrl");
     }
 
-    const workerFactory = typeof createWorker === "function" ? createWorker : () => createDefaultWorker(scriptUrl, workerOptions);
+    const workerFactory = typeof createWorker === "function"
+      ? createWorker
+      : /** @type {() => WorkerPoolWorkerLike | Promise<WorkerPoolWorkerLike>} */ (
+          () => /** @type {Promise<WorkerPoolWorkerLike>} */ (/** @type {unknown} */ (createDefaultWorker(scriptUrl, workerOptions)))
+        );
 
-    /** @type {() => Worker | Promise<Worker>} */
+    /** @type {() => WorkerPoolWorkerLike | Promise<WorkerPoolWorkerLike>} */
     this._createWorker = workerFactory;
     this._maxWorkers = maxWorkers;
     this._idleTimeoutMs = idleTimeoutMs;

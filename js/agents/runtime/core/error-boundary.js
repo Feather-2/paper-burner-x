@@ -184,6 +184,7 @@ export class ErrorBoundary {
    * @param {function} [options.onRecovery] - Recovery callback
    * @param {Object<string, function>} [options.fallbacks] - Category → fallback function
    * @param {number} [options.maxErrors=100] - Max errors to keep
+   * @param {(meta: { category?: string, timestamp: number }) => string | null | undefined} [options.errorIdFactory]
    */
   constructor({
     onError,

@@ -145,7 +145,7 @@ export class UnifiedMemoryStore {
     if (this._initPromise) return this._initPromise;
 
     this._initPromise = (async () => {
-      const l3 = await this._getL3Storage();
+      const l3 = this._l3Storage;
       if (l3 && typeof l3.init === "function") {
         await l3.init();
       }

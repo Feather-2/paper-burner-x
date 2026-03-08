@@ -249,6 +249,6 @@ export function createFetchHandler(bridge) {
       headers: Object.fromEntries(request.headers.entries()),
       body: request.body ? await request.text() : null,
     });
-    return new Response(resp.body, { status: resp.status, headers: resp.headers });
+    return new Response(/** @type {BodyInit} */ (resp.body), { status: resp.status, headers: resp.headers });
   };
 }

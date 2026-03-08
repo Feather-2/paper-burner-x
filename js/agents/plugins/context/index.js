@@ -95,7 +95,7 @@ export default createPlugin({
         // 按模块过滤
         if (module) {
           decisions = decisions.filter(d =>
-            (d.modules || []).some(m => moduleMatches(m, module))
+            ((/** @type {{ modules?: string[] }} */ (d)).modules || []).some(m => moduleMatches(m, module))
           );
         }
 

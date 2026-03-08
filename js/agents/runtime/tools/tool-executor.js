@@ -695,14 +695,14 @@ export class ToolExecutor {
         settle(doCleanup(true), () => reject(new Error(`Tool worker exited with code ${code}`)));
       };
 
-      const timer = /** @type {TimeoutHandle} */ (setTimeout(() => {
+      const timer = /** @type {TimeoutHandle} */ (/** @type {unknown} */ (setTimeout(() => {
         settle(doCleanup(true), () => {
           const err = /** @type {Error & { code?: string }} */ (new Error(`Tool execution timed out after ${timeoutMs}ms`));
           err.name = "TimeoutError";
           err.code = "ETIMEDOUT";
           reject(err);
         });
-      }, timeoutMs));
+      }, timeoutMs)));
 
       if (unrefTimer && timer && typeof timer.unref === "function") {
         try { timer.unref(); } catch { /* ignore */ }

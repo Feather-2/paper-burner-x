@@ -76,8 +76,7 @@ export default createPlugin({
 
   async install(ctx) {
     const { createVfs } = await import('../../vfs/index.js');
-    /** @type {VfsLike} */
-    const vfs = await createVfs(ctx.config);
+    const vfs = /** @type {VfsLike} */ (/** @type {unknown} */ (await createVfs(ctx.config)));
     /** @type {((request: VfsGlobRequest) => Promise<string[]>) | null} */
     let fallbackGlobFn = null;
     let fallbackGlobInitialized = false;

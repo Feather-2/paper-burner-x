@@ -259,7 +259,7 @@ export function buildJournalEntry(entry, seq) {
   const ts = toIso(e.ts);
   const reversible = e.reversible === true;
 
-  return {
+  return /** @type {SideEffectJournalEntry} */ ({
     seq,
     kind,
     ts,
@@ -269,7 +269,7 @@ export function buildJournalEntry(entry, seq) {
     ...(toNonEmptyString(e.op) ? { op: toNonEmptyString(e.op) } : {}),
     ...(toNonEmptyString(e.eventId) ? { eventId: toNonEmptyString(e.eventId) } : {}),
     ...(meta ? { meta: { ...meta } } : {}),
-  };
+  });
 }
 
 /**

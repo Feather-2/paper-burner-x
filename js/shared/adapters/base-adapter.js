@@ -23,6 +23,7 @@ export class BaseAdapter {
     this._eventBus = eventBus;
     this._options = options;
     this._subscriptions = [];
+    /** @type {AdapterState} */
     this._state = {
       status: 'idle',
       error: null

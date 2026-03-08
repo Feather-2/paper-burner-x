@@ -1087,3 +1087,65 @@ core 内部未覆盖/陈旧热点：
 4. `js/agents/core/webruntime/sw-handler.js`
 5. `js/agents/runtime/core/{agent-coordination,scheduler}.js`
 6. 多个只剩 1 条诊断的边角文件
+
+## 15. 第 14 轮，TSC 清零（2026-03-08）
+
+这轮继续把剩余边角诊断逐个打掉，主要是单点 JSDoc 漂移、跨模块工厂返回值契约、aggregate export 冲突，以及少量 browser/node 双端 Buffer/Worker 接口的静态类型问题。
+
+### 本轮处理文件
+
+- `js/agents/core/node-compat/shims/{os,buffer}.js`
+- `js/agents/core/sandbox/{pool,create-sandbox,system/seatbelt,violation-store}.js`
+- `js/agents/core/webruntime/{server-bridge,sw-handler,vfs-snapshot}.js`
+- `js/agents/llm/internal/call-executor.js`
+- `js/agents/plugins/{checkpoints/agent-checkpoint-store,compression/watchdog,context/index,memory/unified-memory-store,services/{scheduler,vfs},telemetry/{cost-aggregator,token-tracker},side-effects/side-effect-journal-helpers}.js`
+- `js/agents/retrieval/embeddings/vector-index.js`
+- `js/agents/runtime/core/{api/stage-api-factory,context/unified-agent-context,error-boundary,worker-pool,agent-coordination,persisted-output}.js`
+- `js/agents/runtime/{safety/tool-permissions,session-gate,tools/tool-executor}.js`
+- `js/agents/sdk/{convenience.js}`
+- `js/agents/stages/{deepsearch/deepsearch-agent-loop,design/shared/design-utils,index.js}`
+- `js/agents/vfs/index.js`
+- `js/shared/adapters/base-adapter.js`
+
+### 这轮做了什么
+
+- 修正 aggregate export 冲突：`stages/index.js` 不再把 design/codesearch 的同名 `createToolExecutor` 直接撞到同一出口，改为显式别名导出。
+- 收紧多处 archive / worker / vfs / adapter 契约，让真实返回接口和 JSDoc 对齐。
+- 处理 browser/node 双端的 `Buffer`/`BodyInit`/`navigator.deviceMemory`/`setTimeout` 类型边界。
+- 清理少量“实现是对的，但 checkJs 不接受”的 this/Promise/tuple/optional-field 问题。
+
+### 当前结果
+
+- `npx tsc -p js/agents/tsconfig.json --pretty false`
+  - **0 diagnostics**
+  - `js/agents` TSC 已清零
+
+### 验证
+
+本轮窄回归通过：
+
+- `tests/unit/agents/core/node-compat/shims/os.test.js`
+- `tests/unit/agents/core/webruntime/server-bridge.test.js`
+- `tests/unit/agents/core/webruntime/vfs-snapshot.test.js`
+- `tests/unit/agents/plugins/checkpoints/agent-checkpoint-store.test.js`
+- `tests/unit/agents/plugins/compression/watchdog.test.js`
+- `tests/unit/agents/plugins/memory/unified-memory-store.test.js`
+- `tests/unit/agents/plugins/services/scheduler.test.js`
+- `tests/unit/agents/plugins/services/vfs.test.js`
+- `tests/unit/agents/plugins/telemetry/cost-aggregator.test.js`
+- `tests/unit/agents/plugins/telemetry/token-tracker.test.js`
+- `tests/unit/agents/retrieval/embeddings/vector-index.test.js`
+- `tests/unit/agents/runtime/core/context/unified-agent-context.test.js`
+- `tests/unit/agents/runtime/core/error-boundary.test.js`
+- `tests/unit/agents/runtime/core/worker-pool.test.js`
+- `tests/unit/agents/runtime/session-gate.test.js`
+- `tests/unit/agents/runtime/tools/tool-executor.test.js`
+- `tests/unit/agents/vfs/index.test.js`
+- `tests/unit/agents/stages/design/shared/design-utils.test.js`
+- `tests/unit/agents/stages/deepsearch/deepsearch-agent-loop.test.js`
+- `tests/unit/agents/sdk/convenience.test.js`
+
+### 当前状态
+
+- `js/agents`：**TSC 0 diagnostics**
+- 尚未在本轮重新跑完整 `npm run test:agents`，当前结论基于多轮窄回归与前序全量基线

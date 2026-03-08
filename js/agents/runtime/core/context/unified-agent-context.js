@@ -33,7 +33,7 @@ class AsyncMutex {
   async acquire() {
     /** @type {() => void} */
     let release;
-    const next = new Promise(/** @param {() => void} resolve */ (resolve) => { release = resolve; });
+    const next = new Promise((resolve) => { release = /** @type {() => void} */ (resolve); });
     const prev = this._lock;
     this._lock = next;
     await prev;

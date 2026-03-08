@@ -231,11 +231,9 @@ export async function runDesign(taskGoal, options = {}) {
 
     const loop = new DesignAgentLoop({ eventBus });
     const output = await loop.run(contentPackage, {
-      stageApi: {
-        eventBus,
-        modelRouter: options?.modelRouter,
-        signal: options?.signal,
-      },
+      eventBus,
+      modelRouter: options?.modelRouter,
+      signal: options?.signal,
       runContext: {
         runId,
         userConfig: contentPackage.userConfig,

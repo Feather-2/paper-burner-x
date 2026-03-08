@@ -60,6 +60,7 @@ export default createPlugin({
     }
 
     /** @type {number | null} */
+    /** @type {ReturnType<typeof setInterval> | null} */
     let intervalId = null;
     /** @type {(() => void) | null} */
     let unsubscribe = null;

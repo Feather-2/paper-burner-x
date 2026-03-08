@@ -94,7 +94,7 @@ export class SessionGate {
     // Build the waiter promise
     /** @type {() => void} */
     let releaseResolve;
-    const releasePromise = new Promise((resolve) => { releaseResolve = resolve; });
+    const releasePromise = new Promise((resolve) => { releaseResolve = /** @type {() => void} */ (resolve); });
 
     // The previous chain we must wait on
     const prevChain = entry ? entry.chain : Promise.resolve();

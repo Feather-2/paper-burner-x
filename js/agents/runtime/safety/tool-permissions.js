@@ -17,6 +17,7 @@ import { toNonEmptyString, isPlainObject } from '../../shared/index.js';
  * @property {PermissionLevel} [level] - 权限级别
  * @property {ToolRestrictions} [restrictions] - 自定义限制
  * @property {boolean} [strict] - 严格模式 (未知工具默认拒绝)
+ * @property {{ evaluate: (req: any) => any }} [policyEngine] - 外部策略引擎
  */
 
 /**

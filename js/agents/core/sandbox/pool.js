@@ -151,8 +151,7 @@ export class SandboxPool {
 
   /**
    * 获取沙箱
-   * @param {PoolAcquireOptions} options
-   * @param {number} [options.priority=0] - 任务优先级（数值越大优先级越高）
+   * @param {PoolAcquireOptions} [options]
    * @returns {Promise<WasmSandbox>}
    */
   async acquire(options = {}) {

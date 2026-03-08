@@ -94,7 +94,7 @@ export function restoreDefaultNodeModuleImporter() {
  */
 export async function createVfs(options = {}) {
   if (!isNodeLike()) {
-    return createBrowserVfs(/** @type {CreateBrowserVfsOptions} */ (options));
+    return /** @type {VfsInterface} */ (/** @type {unknown} */ (await createBrowserVfs(/** @type {CreateBrowserVfsOptions} */ (options))));
   }
 
   const node = await importNodeModule();

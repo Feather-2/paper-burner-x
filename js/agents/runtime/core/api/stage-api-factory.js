@@ -380,7 +380,7 @@ export function createStageApiFactory(first, second) {
   const b = arguments[1];
 
   if (arguments.length <= 1) {
-    return new StageApiFactory(first);
+    return new StageApiFactory(/** @type {StageApiFactoryServices} */ (first));
   }
 
   const stageName = typeof a === "string" ? a : typeof b === "string" ? b : "";

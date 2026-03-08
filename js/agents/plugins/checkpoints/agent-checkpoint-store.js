@@ -70,13 +70,13 @@ let fallbackCheckpointCounter = 0;
  * @template T
  */
 async function withIndexLock(runId, fn, { timeoutMs = DEFAULT_INDEX_LOCK_TIMEOUT_MS } = {}) {
-  /** @type {{ release?: () => void } | null} */
+  /** @type {{ release?: () => void, holder?: string } | null} */
   let lock = null;
   let lockPath = "";
   try {
     lockPath = `${buildIndexPath(runId || "__default__")}.lock`;
     const normalizedTimeout = Number.isFinite(timeoutMs) ? Math.max(100, Math.floor(timeoutMs)) : DEFAULT_INDEX_LOCK_TIMEOUT_MS;
-    lock = await acquireLock(lockPath, { type: "write", timeout: normalizedTimeout });
+    lock = /** @type {{ release?: () => void, holder?: string } | null} */ (await acquireLock(lockPath, { type: "write", timeout: normalizedTimeout }));
     if (!lock) {
       throw new Error("Failed to acquire index lock");
     }

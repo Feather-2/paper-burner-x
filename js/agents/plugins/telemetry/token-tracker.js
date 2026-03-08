@@ -32,6 +32,7 @@ const logger = createLogger("runtime/telemetry/token-tracker");
  * @property {number} latencyMs - 延迟 (ms)
  * @property {boolean} success - 是否成功
  * @property {string} [error] - 错误信息（如果失败）
+ * @property {boolean} [usageMissing] - 是否缺失 usage 标签
  */
 
 function generateId() {
@@ -45,7 +46,7 @@ export class TokenTracker {
    * @param {object} options
    * @param {number} [options.maxRecords=500] - 最大记录数
    * @param {function} [options.onRecord] - 记录回调
-   * @param {import("../../core/archive/archive-core.js").Archive} [options.archive] - Archive 实例（可选）
+   * @param {{ list: (runId: string) => Promise<Array<{ id: string }>>, load: (checkpointId: string) => Promise<any>, save?: Function }} [options.archive] - Archive 实例（可选）
    * @param {string} [options.runId] - 运行 ID（可选）
    * @param {(payload: { phase: "hydrate" | "persist", error: Error, runId: string }) => void} [options.onPersistenceError] - 持久化错误回调
    */

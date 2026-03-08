@@ -199,7 +199,7 @@ async function _tryModel({ router, modelId, usage, messages, images }) {
         completionTokens,
         latencyMs,
         success: true,
-        usageMissing,
+        ...(usageMissing ? { usageMissing: true } : {}),
       });
     } catch (err) {
       router._logger.debug(`[ModelRouter] token tracker failed for ${entry.id}: ${redactErrorMessage(err)}`);
