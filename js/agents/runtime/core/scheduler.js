@@ -379,13 +379,13 @@ export class RuntimeScheduler {
    * @returns {{ success: false, error: string, code?: string, metrics: { duration: number, queued?: boolean }, cancelled?: boolean }}
    */
   _dispatchFailure(type, error, meta = {}) {
-    const result = {
+    const result = /** @type {{ success: false, error: string, code?: string, metrics: { duration: number, queued?: boolean }, cancelled?: boolean }} */ ({
       success: false,
       error,
       metrics: {
         duration: typeof meta.duration === "number" ? meta.duration : 0,
       },
-    };
+    });
     if (typeof meta.queued === "boolean") result.metrics.queued = meta.queued;
     if (typeof meta.cancelled === "boolean") result.cancelled = meta.cancelled;
     if (typeof meta.code === "string" && meta.code) result.code = meta.code;
@@ -418,7 +418,8 @@ export class RuntimeScheduler {
    * @param {Object} [options.dependencies]
    */
   async dispatch(type, code, inputState, options = {}) {
-    if (isAbortSignalLike(options?.signal) && options.signal.aborted) {
+    const dispatchOptions = /** @type {{ priority?: number, signal?: AbortSignal, trusted?: boolean, dependencies?: any, queueTimeoutMs?: number }} */ (options);
+    if (isAbortSignalLike(dispatchOptions.signal) && dispatchOptions.signal.aborted) {
       return this._dispatchFailure(type, `Task cancelled before dispatch: ${type}`, {
         queued: false,
         cancelled: true,
@@ -454,7 +455,7 @@ export class RuntimeScheduler {
 
     // 可以立即执行
     if (inFlight < this._maxConcurrent) {
-      return this._executeTask(type, runtime, code, inputState, options);
+      return this._executeTask(type, runtime, code, inputState, dispatchOptions);
     }
 
     // 需要排队
@@ -468,7 +469,7 @@ export class RuntimeScheduler {
 
     // 创建排队任务
     return new Promise((resolve) => {
-      const queueTimeoutOverride = Number(options?.queueTimeoutMs);
+      const queueTimeoutOverride = Number(dispatchOptions.queueTimeoutMs);
       const queueTimeoutMs = Number.isFinite(queueTimeoutOverride) && queueTimeoutOverride >= 0
         ? Math.floor(queueTimeoutOverride)
         : this._queueTimeoutMs;

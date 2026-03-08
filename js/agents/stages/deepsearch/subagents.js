@@ -100,7 +100,7 @@ function createResearcherFactory() {
     const eventBus = new EventBus();
     // P2.1: 默认启用背压
     if (typeof eventBus.enableBackpressure === "function") {
-      try { eventBus.enableBackpressure({ batchWindowMs: 0 }); } catch { /* ignore */ }
+      try { eventBus.enableBackpressure({ deferNonCoalesced: false }); } catch { /* ignore */ }
     }
     const DeepSearchAgentLoop = await getDeepSearchAgentLoop();
     const agent = new DeepSearchAgentLoop({
@@ -149,7 +149,7 @@ function createAnalyzerFactory() {
     const eventBus = new EventBus();
     // P2.1: 默认启用背压
     if (typeof eventBus.enableBackpressure === "function") {
-      try { eventBus.enableBackpressure({ batchWindowMs: 0 }); } catch { /* ignore */ }
+      try { eventBus.enableBackpressure({ deferNonCoalesced: false }); } catch { /* ignore */ }
     }
     const DeepSearchAgentLoop = await getDeepSearchAgentLoop();
     const agent = new DeepSearchAgentLoop({

@@ -448,7 +448,7 @@ export class EventBus {
 
   /**
    * 启用背压控制
-   * @param {{ batchWindowMs?: number, maxQueueSize?: number, dropPolicy?: 'oldest' | 'newest' }} [options]
+   * @param {{ batchWindowMs?: number, maxQueueSize?: number, dropPolicy?: 'oldest' | 'newest', deferNonCoalesced?: boolean, coalescePattern?: RegExp }} [options]
    * @returns {this}
    */
   enableBackpressure(options = {}) {

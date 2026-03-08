@@ -7,11 +7,33 @@ import { toNonEmptyString } from "../../shared/index.js";
  * Agent coordination and lifecycle methods for AgentOrchestrator.
  * These methods handle agent registration, lifecycle events, and state transitions.
  */
+/**
+ * @typedef {{
+ *   _ensureNotDisposed: () => void,
+ *   _childAgents: Set<any>,
+ *   runContext?: { mode?: string, scenario?: string, constraints?: unknown },
+ *   _services?: unknown,
+ *   eventBus: { emit: (event: string, payload: unknown) => void },
+ *   _degradationMatrix?: unknown,
+ *   registerAgent: (agent: any) => any,
+ *   constructor: new (options?: object) => any,
+ *   state: string,
+ *   signal: AbortSignal,
+ *   _abortController: AbortController,
+ *   runId?: string,
+ *   _emitRunStarted: () => void,
+ *   _emitRunFailed: (payload: { error: string }) => void,
+ *   _emitRunCancelled: (reason: string) => void,
+ *   _emitRunCompleted: (payload: { reason: string }) => void,
+ *   _emitRunEnded: (payload: { reason: string }) => void
+ * }} AgentCoordinationHost
+ */
 export const AgentCoordination = {
   /**
    * Register a disposable child agent to be cleaned up when this orchestrator is disposed.
+   * @this {AgentCoordinationHost}
    * @param {any} agent
-   * @returns {this}
+   * @returns {AgentCoordinationHost}
    */
   registerAgent(agent) {
     this._ensureNotDisposed();
@@ -25,12 +47,13 @@ export const AgentCoordination = {
    * Create a child orchestrator that inherits parent config.
    * Inherits: services, eventBus, degradationMatrix, runContext (mode/scenario/constraints).
    * The child is auto-registered for disposal.
+   * @this {AgentCoordinationHost}
    * @param {object} [overrides] - Override any constructor option.
    * @returns {import('./orchestrator-core.js').AgentOrchestrator}
    */
   createChildOrchestrator(overrides = {}) {
     this._ensureNotDisposed();
-    const Ctor = this.constructor;
+    const Ctor = /** @type {new (options?: object) => any} */ (this.constructor);
     const child = new Ctor({
       mode: this.runContext?.mode,
       scenario: this.runContext?.scenario,
@@ -45,6 +68,7 @@ export const AgentCoordination = {
   },
 
   /**
+   * @this {AgentCoordinationHost}
    * @returns {void}
    */
   start() {
@@ -56,6 +80,7 @@ export const AgentCoordination = {
   },
 
   /**
+   * @this {AgentCoordinationHost}
    * @param {any} [reason]
    * @returns {void}
    */
@@ -74,6 +99,7 @@ export const AgentCoordination = {
   },
 
   /**
+   * @this {AgentCoordinationHost}
    * @param {any} [reason]
    * @returns {void}
    */

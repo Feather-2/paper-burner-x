@@ -146,6 +146,7 @@ export function isPersistedOutput(content) {
  * @param {object} [options]
  * @param {number} [options.threshold] - 大小阈值
  * @param {number} [options.previewSize] - 预览大小
+ * @param {string} [options.scope] - 配置作用域
  * @returns {string} - 原始内容或包装后的持久化格式
  */
 export function wrapPersistedOutput(content, options = {}) {
@@ -210,7 +211,7 @@ export function cleanOldPersistedOutputs(messages, keepRecent = undefined) {
 
   if (persistedIndices.length <= keepRecentResolved) return messages;
 
-  const retainCount = Math.max(0, Math.floor(keepRecentResolved));
+  const retainCount = Math.floor(keepRecentResolved);
   const toClean = new Set(persistedIndices.slice(0, -retainCount));
 
   return messages.map((msg, idx) => {

@@ -246,15 +246,26 @@ function withHardTimeout(promiseFactory, timeoutMs, signal, { onTimeout, onAbort
       ? Promise.resolve().then(() => promiseFactory(controller.signal))
       : Promise.resolve(promiseFactory);
 
-  callPromise.finally(() => {
-    if (!didTimeout || lateSettledNotified) return;
-    lateSettledNotified = true;
-    try {
-      notifyLateSettle?.({ timeoutMs: ms });
-    } catch {
-      // ignore callback errors
+  callPromise.then(
+    () => {
+      if (!didTimeout || lateSettledNotified) return;
+      lateSettledNotified = true;
+      try {
+        notifyLateSettle?.({ settled: "fulfilled", timeoutMs: ms });
+      } catch {
+        // ignore callback errors
+      }
+    },
+    () => {
+      if (!didTimeout || lateSettledNotified) return;
+      lateSettledNotified = true;
+      try {
+        notifyLateSettle?.({ settled: "rejected", timeoutMs: ms });
+      } catch {
+        // ignore callback errors
+      }
     }
-  });
+  );
 
   return Promise.race([callPromise, abortPromise]).finally(() => {
     if (timeoutId) clearTimeout(timeoutId);

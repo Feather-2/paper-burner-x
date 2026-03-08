@@ -247,7 +247,7 @@ async function createMainSandbox(cfg) {
     throw new Error('Main-thread sandbox disabled by config');
   }
 
-  if (cfg.vfs?._isRemote && cfg.mainThreadFallback !== false) {
+  if (cfg.vfs?._isRemote) {
     throw new Error('Main-thread sandbox with remote VFS will cause synchronous IO deadlock. Use worker/iframe sandbox instead.');
   }
 
@@ -291,7 +291,7 @@ async function autoCreate(cfg) {
   const errors = [];
   for (const level of AUTO_PRIORITY) {
     try {
-      return await createByLevel(level, cfg);
+      return await createByLevel(/** @type {import('./sandbox-interface.js').SandboxLevel} */ (level), cfg);
     } catch (err) {
       errors.push({ level, error: err.message });
     }

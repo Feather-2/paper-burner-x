@@ -3,121 +3,16 @@
  * Wraps Uint8Array with common Buffer methods.
  */
 
+/**
+ * @param {Uint8Array} bytes
+ * @returns {Buffer}
+ */
+function asBuffer(bytes) {
+  return /** @type {Buffer} */ (Object.setPrototypeOf(bytes, Buffer.prototype));
+}
+
+// @ts-expect-error Buffer intentionally exposes a Node-compatible static API that differs from Uint8Array.
 export class Buffer extends Uint8Array {
-  /**
-   * @param {string|ArrayBuffer|Uint8Array|number[]} input
-   * @param {string} [encoding]
-   * @returns {Buffer}
-   */
-  static from(input, encoding) {
-    if (typeof input === 'string') {
-      const enc = (encoding || 'utf8').toLowerCase();
-      if (enc === 'base64' || enc === 'base64url') {
-        const normalized = input.replace(/-/g, '+').replace(/_/g, '/');
-        const bin = atob(normalized);
-        const arr = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-        return Object.setPrototypeOf(arr, Buffer.prototype);
-      }
-      if (enc === 'hex') {
-        const bytes = new Uint8Array(input.length / 2);
-        for (let i = 0; i < input.length; i += 2) {
-          bytes[i / 2] = parseInt(input.substr(i, 2), 16);
-        }
-        return Object.setPrototypeOf(bytes, Buffer.prototype);
-      }
-      if (enc === 'ascii' || enc === 'latin1' || enc === 'binary') {
-        const arr = new Uint8Array(input.length);
-        for (let i = 0; i < input.length; i++) arr[i] = input.charCodeAt(i) & 0xff;
-        return Object.setPrototypeOf(arr, Buffer.prototype);
-      }
-      const bytes = new TextEncoder().encode(input);
-      return Object.setPrototypeOf(bytes, Buffer.prototype);
-    }
-    if (input instanceof ArrayBuffer) {
-      return Object.setPrototypeOf(new Uint8Array(input), Buffer.prototype);
-    }
-    if (ArrayBuffer.isView(input) || Array.isArray(input)) {
-      return Object.setPrototypeOf(new Uint8Array(input), Buffer.prototype);
-    }
-    return Object.setPrototypeOf(new Uint8Array(0), Buffer.prototype);
-  }
-
-  /**
-   * @param {number} size
-   * @param {number|string} [fill]
-   * @param {string} [encoding]
-   * @returns {Buffer}
-   */
-  static alloc(size, fill, encoding) {
-    const buf = Object.setPrototypeOf(new Uint8Array(size), Buffer.prototype);
-    if (fill !== undefined) buf.fill(fill);
-    return buf;
-  }
-
-  /**
-   * @param {number} size
-   * @returns {Buffer}
-   */
-  static allocUnsafe(size) {
-    return Buffer.alloc(size);
-  }
-
-  /**
-   * @param {Buffer[]} list
-   * @param {number} [totalLength]
-   * @returns {Buffer}
-   */
-  static concat(list, totalLength) {
-    const total = totalLength ?? list.reduce((sum, b) => sum + b.length, 0);
-    const result = new Uint8Array(total);
-    let offset = 0;
-    for (const b of list) {
-      if (offset >= total) break;
-      const len = Math.min(b.length, total - offset);
-      result.set(b.length === len ? b : b.subarray(0, len), offset);
-      offset += len;
-    }
-    return Object.setPrototypeOf(result, Buffer.prototype);
-  }
-
-  /**
-   * @param {*} obj
-   * @returns {boolean}
-   */
-  static isBuffer(obj) {
-    return obj instanceof Buffer;
-  }
-
-  /**
-   * @param {string} string
-   * @param {string} [encoding]
-   * @returns {number}
-   */
-  static byteLength(string, encoding) {
-    if (typeof string !== 'string') return string.length || 0;
-    const enc = (encoding || 'utf8').toLowerCase();
-    if (enc === 'hex') return string.length / 2;
-    if (enc === 'base64' || enc === 'base64url') {
-      let padding = 0;
-      if (string.endsWith('==')) padding = 2;
-      else if (string.endsWith('=')) padding = 1;
-      return Math.floor((string.length * 3) / 4) - padding;
-    }
-    if (enc === 'ascii' || enc === 'latin1' || enc === 'binary') return string.length;
-    return new TextEncoder().encode(string).length;
-  }
-
-  /**
-   * @param {string} enc
-   * @returns {boolean}
-   */
-  static isEncoding(enc) {
-    return [
-      'utf8', 'utf-8', 'hex', 'base64', 'base64url', 'ascii',
-      'latin1', 'binary', 'ucs2', 'ucs-2', 'utf16le', 'utf-16le',
-    ].includes((enc || '').toLowerCase());
-  }
 
   /**
    * @param {string} string
@@ -280,6 +175,119 @@ export class Buffer extends Uint8Array {
     }
   }
 }
+
+/**
+ * @param {string|ArrayBuffer|Uint8Array|number[]} input
+ * @param {string} [encoding]
+ * @returns {Buffer}
+ */
+Buffer.from = function from(input, encoding) {
+  if (typeof input === 'string') {
+    const enc = (encoding || 'utf8').toLowerCase();
+    if (enc === 'base64' || enc === 'base64url') {
+      const normalized = input.replace(/-/g, '+').replace(/_/g, '/');
+      const bin = atob(normalized);
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      return asBuffer(arr);
+    }
+    if (enc === 'hex') {
+      const bytes = new Uint8Array(input.length / 2);
+      for (let i = 0; i < input.length; i += 2) {
+        bytes[i / 2] = parseInt(input.substr(i, 2), 16);
+      }
+      return asBuffer(bytes);
+    }
+    if (enc === 'ascii' || enc === 'latin1' || enc === 'binary') {
+      const arr = new Uint8Array(input.length);
+      for (let i = 0; i < input.length; i++) arr[i] = input.charCodeAt(i) & 0xff;
+      return asBuffer(arr);
+    }
+    return asBuffer(new TextEncoder().encode(input));
+  }
+  if (input instanceof ArrayBuffer) return asBuffer(new Uint8Array(input));
+  if (ArrayBuffer.isView(input) || Array.isArray(input)) return asBuffer(new Uint8Array(input));
+  return asBuffer(new Uint8Array(0));
+};
+
+/**
+ * @param {number} size
+ * @param {number|string} [fill]
+ * @param {string} [_encoding]
+ * @returns {Buffer}
+ */
+Buffer.alloc = function alloc(size, fill, _encoding) {
+  const buf = asBuffer(new Uint8Array(size));
+  if (fill !== undefined) buf.fill(fill);
+  return buf;
+};
+
+/**
+ * @param {number} size
+ * @returns {Buffer}
+ */
+Buffer.allocUnsafe = function allocUnsafe(size) {
+  return Buffer.alloc(size);
+};
+
+/**
+ * @param {Buffer[]} list
+ * @param {number} [totalLength]
+ * @returns {Buffer}
+ */
+Buffer.concat = function concat(list, totalLength) {
+  const total = totalLength ?? list.reduce((sum, b) => sum + b.length, 0);
+  const result = new Uint8Array(total);
+  let offset = 0;
+  for (const b of list) {
+    if (offset >= total) break;
+    const len = Math.min(b.length, total - offset);
+    result.set(b.length === len ? b : b.subarray(0, len), offset);
+    offset += len;
+  }
+  return asBuffer(result);
+};
+
+/**
+ * @param {*} obj
+ * @returns {boolean}
+ */
+Buffer.isBuffer = function isBuffer(obj) {
+  return obj instanceof Buffer;
+};
+
+/**
+ * @param {string | ArrayBuffer | Uint8Array | number[] | { length?: number }} value
+ * @param {string} [encoding]
+ * @returns {number}
+ */
+Buffer.byteLength = function byteLength(value, encoding) {
+  if (typeof value !== 'string') {
+    if (value instanceof ArrayBuffer) return value.byteLength;
+    return typeof value?.length === 'number' ? value.length : 0;
+  }
+  const enc = (encoding || 'utf8').toLowerCase();
+  if (enc === 'hex') return value.length / 2;
+  if (enc === 'base64' || enc === 'base64url') {
+    let padding = 0;
+    if (value.endsWith('==')) padding = 2;
+    else if (value.endsWith('=')) padding = 1;
+    return Math.floor((value.length * 3) / 4) - padding;
+  }
+  if (enc === 'ascii' || enc === 'latin1' || enc === 'binary') return value.length;
+  return new TextEncoder().encode(value).length;
+};
+
+/**
+ * @param {string} enc
+ * @returns {boolean}
+ */
+Buffer.isEncoding = function isEncoding(enc) {
+  return [
+    'utf8', 'utf-8', 'hex', 'base64', 'base64url', 'ascii',
+    'latin1', 'binary', 'ucs2', 'ucs-2', 'utf16le', 'utf-16le',
+  ].includes((enc || '').toLowerCase());
+};
 
 export const SlowBuffer = Buffer;
 export const kMaxLength = 2147483647;

@@ -78,6 +78,7 @@ import { toPositiveInt } from "../../../../shared/index.js";
  * @property {boolean} [compacted] - 是否已压缩
  * @property {Record<string, unknown>} [metadata] - 附加元数据
  * @property {boolean} [abortRequested] - 是否请求过超时中断
+ * @property {number} [timeoutMs] - 超时时间（毫秒）
  */
 
 /**
@@ -687,6 +688,7 @@ export async function waitForTask(taskId, timeout = DEFAULT_WAIT_TIMEOUT_MS, opt
         ...task,
         status: "timeout",
         error: message,
+        timeoutMs: timeout,
         metadata: {
           ...(task.metadata && typeof task.metadata === "object" ? task.metadata : {}),
           timeoutMs: timeout,

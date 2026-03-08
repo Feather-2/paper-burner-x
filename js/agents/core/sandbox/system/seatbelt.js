@@ -157,7 +157,10 @@ export async function executeInSeatbelt(command, args, options) {
   const disableMandatoryDeny = options.disableMandatoryDeny || false;
 
   // 生成唯一日志标签用于违规追踪
-  const cmdBase64 = Buffer.from([command, ...args].join(' ')).toString('base64').slice(0, 40);
+  const bufferCtor = /** @type {{ from?: (input: string) => { toString: (encoding: string) => string } }} */ (globalThis.Buffer);
+  const cmdBase64 = bufferCtor && typeof bufferCtor.from === 'function'
+    ? bufferCtor.from([command, ...args].join(' ')).toString('base64').slice(0, 40)
+    : "";
   const logTag = `PB_${cmdBase64}_${Date.now().toString(36)}`;
 
   // 生成 SBPL profile
@@ -518,6 +521,7 @@ export async function startViolationMonitor(options) {
       violationStore.add({
         type: 'sandbox:deny',
         detail: `${parsed.operation}${parsed.path ? ' ' + parsed.path : ''}`,
+        timestamp: Date.now(),
         meta: {
           operation: parsed.operation,
           path: parsed.path,

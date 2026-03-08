@@ -11,6 +11,13 @@
  */
 
 /**
+ * @typedef {{
+ *   addEventListener: (type: string, listener: (event: any) => void) => void,
+ *   clients: { get: (id: string) => Promise<any>, matchAll?: (options?: object) => Promise<any[]> }
+ * }} ServiceWorkerLike
+ */
+
+/**
  * @param {string | undefined} scope
  * @returns {string}
  */
@@ -31,7 +38,7 @@ function escapeRegex(value) {
 
 /**
  * Install fetch interceptor in a Service Worker context.
- * @param {ServiceWorkerGlobalScope} sw
+ * @param {ServiceWorkerLike} sw
  * @param {SwFetchHandlerOptions} [options]
  */
 export function installFetchHandler(sw, options = {}) {
@@ -96,6 +103,7 @@ export function installFetchHandler(sw, options = {}) {
             settle(new Response('No client', { status: 503 }));
             return;
           }
+          /** @type {Transferable[]} */
           const transfer = [mc.port2];
           if (body instanceof ArrayBuffer) transfer.push(body);
           client.postMessage({

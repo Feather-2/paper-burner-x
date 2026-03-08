@@ -7,7 +7,7 @@
 
 /**
  * @typedef {object} Violation
- * @property {'network'|'fs:read'|'fs:write'|'exec'|'capability'} type
+ * @property {'network'|'fs:read'|'fs:write'|'exec'|'capability'|'sandbox:deny'} type
  * @property {string} detail - Human-readable description
  * @property {number} timestamp - Date.now()
  * @property {Record<string, unknown>} [meta] - Extra context
@@ -56,7 +56,7 @@ export class ViolationStore {
 
   /**
    * Get violations filtered by type.
-   * @param {'network'|'fs:read'|'fs:write'|'exec'|'capability'} type
+   * @param {'network'|'fs:read'|'fs:write'|'exec'|'capability'|'sandbox:deny'} type
    * @returns {Violation[]}
    */
   getByType(type) {
